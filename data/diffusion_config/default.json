@@ -1,13 +1,13 @@
 {
-    "positive_prompt": "black tuxedo, necktie",
-    "negative_prompt": "wrinkled, low quality, bad anatomy, deformed, extra limbs",
+    "positive_prompt": "wearing black tuxedo, necktie",
+    "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
     "segmentation_positive_prompt": "person",
-    "segmentation_negative_prompt": "face, hair, hands",
-    "steps": 50,
-    "cfg": 9,
-    "strength": 0.9,
+    "segmentation_negative_prompt": "face, hair, eyes, hands",
+    "steps": 44,
+    "cfg": 7,
+    "strength": 0.92,
     "seed": -1,
     "guidance_rescale": 0,
-    "mask_blur": 0.2,
-    "mask_outline_thickness": 1.3
+    "mask_blur": 0,
+    "mask_outline_thickness": 3
 }

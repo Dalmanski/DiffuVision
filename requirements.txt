@@ -1,0 +1,33 @@
+# DiffuVision AI - app.py
+# Python 3.12
+# Install with: python -m pip install -U -r requirements.txt
+# NOTE: torch/torchvision are intentionally not pinned here because the correct wheel
+# depends on the user's GPU and driver (CUDA vs CPU). Install those separately
+# using the matching PyTorch wheel for your system.
+
+customtkinter==5.2.2
+Pillow==11.1.0
+numpy==2.3.0
+opencv-python==4.11.0.86
+
+# Stable Diffusion / Hugging Face stack used by app.py
+# These versions are compatible with each other for the current app setup.
+diffusers==0.39.0
+transformers==4.57.3
+huggingface-hub==0.36.2
+safetensors==0.6.2
+accelerate==1.10.0
+
+# PyTorch
+# Install the correct CUDA or CPU build for your system before/after this file.
+# Examples:
+#   CUDA 12.1: python -m pip install -U torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu121
+#   CPU-only:  python -m pip install -U torch==2.7.1 torchvision==0.22.1
+#   If your environment already has a working torch build, keep it and skip these lines.
+torch
+torchvision
+
+# Optional dependency used elsewhere in the existing environment.
+# faster-whisper also needs onnxruntime if that feature is used.
+faster-whisper==1.2.1
+onnxruntime==1.18.1
