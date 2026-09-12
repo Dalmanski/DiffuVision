@@ -1,33 +1,35 @@
-# DiffuVision AI - app.py
-# Python 3.12
-# Install with: python -m pip install -U -r requirements.txt
-# NOTE: torch/torchvision are intentionally not pinned here because the correct wheel
-# depends on the user's GPU and driver (CUDA vs CPU). Install those separately
-# using the matching PyTorch wheel for your system.
-
-customtkinter==5.2.2
-Pillow==11.1.0
-numpy==2.3.0
-opencv-python==4.11.0.86
-
-# Stable Diffusion / Hugging Face stack used by app.py
-# These versions are compatible with each other for the current app setup.
+av==18.1.0
+basicsr_fixed==1.4.2
+codeformer==0.0.11
+controlnet_aux==0.0.10
+customtkinter==6.0.0
+dataclasses_json==0.6.7
+decord==0.6.0
 diffusers==0.39.0
-transformers==4.57.3
-huggingface-hub==0.36.2
-safetensors==0.6.2
-accelerate==1.10.0
-
-# PyTorch
-# Install the correct CUDA or CPU build for your system before/after this file.
-# Examples:
-#   CUDA 12.1: python -m pip install -U torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu121
-#   CPU-only:  python -m pip install -U torch==2.7.1 torchvision==0.22.1
-#   If your environment already has a working torch build, keep it and skip these lines.
-torch
-torchvision
-
-# Optional dependency used elsewhere in the existing environment.
-# faster-whisper also needs onnxruntime if that feature is used.
-faster-whisper==1.2.1
-onnxruntime==1.18.1
+Flask==3.1.3
+flask_cors==6.0.5
+huggingface_hub==1.31.0
+hydra-core==1.3.6
+imagesize==2.0.1
+insightface==1.0.1
+iopath==0.1.10
+matplotlib==3.11.2
+numpy==2.5.3
+omegaconf==2.3.1
+opencv_contrib_python==4.11.0.86
+opencv_python==5.0.0.93
+opencv_python_headless==5.0.0.93
+pandas==3.0.5
+Pillow==12.3.0
+pycocotools==2.0.11
+realesrgan==0.3.0
+rembg==2.0.84
+setuptools==84.0.0
+scikit-image
+strawberry==3.0
+submitit==1.5.4
+tensordict==0.14.2
+torch==2.8.0+cu128
+torchvision==0.23.0+cu128
+tqdm==4.67.1
+transformers==5.17.0
