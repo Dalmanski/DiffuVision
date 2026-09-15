@@ -8,6 +8,7 @@ import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
 import modules.segdinosam2 as segdinosam2
+import modules.selectsegsam2 as selectsegsam2
 import modules.imgclass as imgclass
 import components.json_textbox as json_textbox
 import components.console_textbox as console_textbox
@@ -86,7 +87,7 @@ def discover_models():
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
 MAX_SIDE = 768
-RECOMMENDED_RATIO_SIZES = {'1:1': (512, 512), '4:3': (576, 432), '3:2': (768, 512), '16:9': (768, 432), '5:4': (640, 512), '4:5': (512, 640), '3:4': (576, 768), '2:3': (512, 768), '9:16': (432, 768)}
+RECOMMENDED_RATIO_SIZES = {'1:1': (512, 512), '4:3': (768, 576), '3:2': (768, 512), '16:9': (768, 432), '5:4': (640, 512), '4:5': (512, 640), '3:4': (576, 768), '2:3': (512, 768), '9:16': (432, 768)}
 RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
 OUTPUT_TARGET = 1080
 IMAGE_CLASSES = [REAL, ANIME, THREE_D, CARTOON]
@@ -97,7 +98,7 @@ class GenerationStopped(Exception):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DiffuVision AI - Inpainting with Stable Diffusion')
+        self.title('DiffuVision - Inpainting with Stable Diffusion')
         self.iconbitmap('favicon.ico')
         self.geometry('1600x1150')
         self.minsize(1100, 900)
@@ -105,6 +106,10 @@ class App(ctk.CTk):
         self.current_model_name = None
         self.pipeline_dtype = None
         self.segmentation = None
+        self.manual_segmenter = None
+        self.manual_selection_image = None
+        self.manual_segment_mode = False
+        self.manual_segment_loading = False
         self.original_image = None
         self.input_image = None
         self.sd_input_image = None
@@ -113,6 +118,7 @@ class App(ctk.CTk):
         self.input_image_name = None
         self.generation_counter = 0
         self.mask_image = None
+        self.mask_source = None
         self.classification_result = None
         self.gender_result = None
         self.classification_loading = False
@@ -176,11 +182,18 @@ class App(ctk.CTk):
         self.input_label.grid(row=0, column=0, sticky='w', padx=4, pady=(0, 4))
         self.mask_button_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
         self.mask_button_row.grid(row=0, column=1, sticky='e', padx=2, pady=(0, 4))
-        self.reload_mask_btn = ctk.CTkButton(self.mask_button_row, text='RELOAD MASK', command=self.reload_mask, width=120, height=34, state='disabled')
-        self.reload_mask_btn.grid(row=0, column=0, sticky='e')
-        self.input_image_container = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=600)
-        self.input_image_container.grid(row=1, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.reload_mask_btn = ctk.CTkButton(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 18))
+        self.reload_mask_btn.grid(row=0, column=0, sticky='e', padx=(0, 4))
+        self.manual_segment_btn = ctk.CTkButton(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 18))
+        self.manual_segment_btn.grid(row=0, column=1, sticky='e', padx=4)
+        self.clear_segment_btn = ctk.CTkButton(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 17), fg_color='#21262D', hover_color='#30363D')
+        self.clear_segment_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
+        self.input_image_container = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=700)
+        self.left_frame.grid_rowconfigure(1, minsize=700, weight=0)
+        self.input_image_container.grid(row=1, column=0, columnspan=2, sticky='nsew', padx=2, pady=(0, 8))
         self.input_image_container.grid_propagate(False)
+        self.input_image_container.grid_rowconfigure(0, weight=1)
+        self.input_image_container.grid_columnconfigure(0, weight=1)
         self.input_canvas = ctk.CTkCanvas(self.input_image_container, bg='#030303', highlightthickness=0)
         self.input_canvas.pack(fill='both', expand=True)
         self.ratio_var = ctk.StringVar(value='1:1')
@@ -275,7 +288,7 @@ class App(ctk.CTk):
         if self.processing:
             self.generate_btn.configure(state='normal', text='STOP GENERATING', command=self.stop_generation)
             return
-        state = 'normal' if self.models_ready and self.original_image is not None and not self.model_loading and not self.segmentation_loading and not self.classification_loading else 'disabled'
+        state = 'normal' if self.models_ready and self.original_image is not None and not self.model_loading and not self.segmentation_loading and not self.classification_loading and not self.manual_segment_loading else 'disabled'
         self.generate_btn.configure(state=state, text='GENERATE', command=self.generate)
 
     def stop_generation(self):
@@ -290,10 +303,120 @@ class App(ctk.CTk):
             raise GenerationStopped()
 
     def update_crop_button_state(self):
-        state = 'normal' if self.original_image is not None and not self.processing and not self.segmentation_loading else 'disabled'
+        state = 'normal' if self.original_image is not None and not self.processing and not self.segmentation_loading and not self.manual_segment_loading else 'disabled'
+        if hasattr(self, 'manual_segment_mode') and self.manual_segment_mode:
+            state = 'disabled'
         self.reset_crop_btn.configure(state=state)
         self.auto_fit_crop_btn.configure(state=state)
         self.ratio_menu.configure(state=state)
+        self.update_manual_segment_buttons()
+
+    def update_manual_segment_buttons(self):
+        if not hasattr(self, 'manual_segment_btn'):
+            return
+        base_state = 'normal' if self.original_image is not None and not self.processing and not self.model_loading and not self.segmentation_loading and not self.classification_loading and not self.manual_segment_loading else 'disabled'
+        self.manual_segment_btn.configure(state=base_state)
+        self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
+        if self.manual_segment_mode:
+            self.manual_segment_btn.configure(fg_color='#1f8f3a', hover_color='#176b2c')
+        else:
+            self.manual_segment_btn.configure(fg_color='#21262D', hover_color='#30363D')
+
+    def toggle_manual_segment_mode(self):
+        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+            return
+        if self.original_image is None:
+            return
+        if self.manual_segment_mode:
+            self.disable_manual_segment_mode()
+            self.console.log('SAM2 point selection disabled')
+            return
+        self.manual_segment_mode = True
+        self.manual_segment_loading = True
+        self.manual_segment_btn.configure(state='disabled')
+        self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
+        self.reload_mask_btn.configure(state='disabled')
+        self.update_crop_button_state()
+        self.console.log('Loading SAM2 point selection...')
+        threading.Thread(target=self.load_manual_segmenter_worker, daemon=True).start()
+
+    def load_manual_segmenter_worker(self):
+        try:
+            image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
+            self.manual_segmenter = selectsegsam2.SAM2Segmenter()
+            self.manual_segmenter.load_image(image)
+            self.manual_selection_image = image
+            self.console.log('SAM2 point selection ready • click the image to append segments')
+        except Exception as e:
+            self.manual_segment_mode = False
+            self.console.log(f'SAM2 point selection error: {e}')
+            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Error: {err}'))
+        finally:
+            self.manual_segment_loading = False
+            self.after(0, self.update_crop_button_state)
+            self.after(0, self.show_input)
+            self.after(0, self.update_generate_state)
+
+    def disable_manual_segment_mode(self):
+        self.manual_segment_mode = False
+        self.manual_segment_loading = False
+        segmenter = self.manual_segmenter
+        self.manual_segmenter = None
+        self.manual_selection_image = None
+        if segmenter is not None:
+            segmenter.close()
+        self.cleanup_gpu()
+        self.update_crop_button_state()
+        self.show_input()
+
+    def select_manual_segment(self, event):
+        if not self.manual_segment_mode or self.manual_segment_loading or self.manual_segmenter is None:
+            return
+        if self.input_display_info is None or self.manual_selection_image is None:
+            return
+        x, y, width, height = self.input_display_info
+        if event.x < x or event.x >= x + width or event.y < y or event.y >= y + height:
+            return
+        image_width, image_height = self.manual_selection_image.size
+        image_x = max(0, min(image_width - 1, int((event.x - x) / width * image_width)))
+        image_y = max(0, min(image_height - 1, int((event.y - y) / height * image_height)))
+        self.manual_segment_loading = True
+        self.update_manual_segment_buttons()
+        threading.Thread(target=self.manual_segment_worker, args=(image_x, image_y), daemon=True).start()
+
+    def manual_segment_worker(self, image_x, image_y):
+        try:
+            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=float(self.config.get('mask_outline_thickness', 3.0)), blur=float(self.config.get('mask_blur', 4)))
+            self.mask_image = mask
+            self.mask_source = 'manual'
+            self.output_image = None
+            self.output_showing_original = False
+            self.after(0, self.show_input)
+            self.after(0, self.show_output)
+            self.console.log('Segment appended')
+        except Exception as e:
+            self.console.log(f'SAM2 selection error: {e}')
+            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Selection Error: {err}'))
+        finally:
+            self.manual_segment_loading = False
+            self.after(0, self.update_crop_button_state)
+            self.after(0, lambda: self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
+            self.after(0, self.update_generate_state)
+
+    def clear_manual_segments(self):
+        if self.processing or self.manual_segment_loading:
+            return
+        if self.manual_segmenter is not None:
+            self.manual_segmenter.clear_all_segments()
+        self.mask_image = None
+        self.mask_source = None
+        self.output_image = None
+        self.output_showing_original = False
+        self.generate_btn.configure(state='disabled')
+        self.console.log('All manually appended segments removed')
+        self.show_input()
+        self.show_output()
+        self.update_generate_state()
 
     def auto_fit_crop_to_person(self):
         if self.original_image is None:
@@ -382,6 +505,7 @@ class App(ctk.CTk):
         ratio = self.get_crop_ratio()
         self.crop_box = self.clamp_fixed_crop_box(crop_box, ratio)
         self.mask_image = None
+        self.mask_source = None
         self.sd_input_image = None
         self.output_image = None
         self.output_showing_original = False
@@ -729,7 +853,7 @@ class App(ctk.CTk):
             self.after(0, self.update_crop_button_state)
 
     def upload(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading or self.manual_segment_mode or self.manual_segment_loading:
             return
         path = filedialog.askopenfilename(title='Select input image', filetypes=[('Images', '*.png *.jpg *.jpeg *.webp *.bmp *.avif')])
         if not path:
@@ -749,6 +873,7 @@ class App(ctk.CTk):
             self.output_image = None
             self.output_showing_original = False
             self.mask_image = None
+            self.mask_source = None
             self.classification_result = None
             self.gender_result = None
             self.classification_loading = True
@@ -759,6 +884,8 @@ class App(ctk.CTk):
             self.save_btn.configure(state='disabled')
             self.generate_btn.configure(state='disabled')
             self.reload_mask_btn.configure(state='normal')
+            self.manual_segment_btn.configure(state='normal')
+            self.clear_segment_btn.configure(state='normal')
             self.reset_crop_btn.configure(state='normal')
             self.auto_fit_crop_btn.configure(state='normal')
             self.show_input()
@@ -877,6 +1004,7 @@ class App(ctk.CTk):
             self.console.log('Building mask...')
             mask = self.make_mask(image)
             self.mask_image = mask.copy()
+            self.mask_source = 'auto'
             self.after(0, self.show_input)
             self.after(0, self.show_output)
             self.console.log('Mask ready')
@@ -891,21 +1019,25 @@ class App(ctk.CTk):
             self.after(0, self.update_generate_state)
 
     def reload_mask(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading or self.manual_segment_loading:
             return
         if self.original_image is None:
             return
+        if self.manual_segment_mode:
+            self.disable_manual_segment_mode()
         try:
             self.sync_config()
         except Exception as e:
             self.console.log(f'Configuration Error: {e}')
             return
         self.mask_image = None
+        self.mask_source = None
         self.sd_input_image = None
         self.output_image = None
         self.output_showing_original = False
         self.generate_btn.configure(state='disabled')
         self.reload_mask_btn.configure(state='disabled')
+        self.update_manual_segment_buttons()
         self.show_input()
         self.show_output()
         self.console.log('Reloading mask...')
@@ -1010,6 +1142,14 @@ class App(ctk.CTk):
             negative_prompt = f'{negative_append}, {negative_prompt}' if negative_prompt else negative_append
         return positive_prompt, negative_prompt
 
+    def has_valid_mask(self, mask):
+        if mask is None:
+            return False
+        try:
+            return np.asarray(mask, dtype=np.uint8).max() >= 10
+        except Exception:
+            return False
+
     def generate(self):
         if self.processing:
             return
@@ -1022,6 +1162,8 @@ class App(ctk.CTk):
         if not self.models_ready:
             self.console.log('Model not ready')
             return
+        if self.manual_segment_mode:
+            self.disable_manual_segment_mode()
         if self.original_image is None:
             self.console.log('No image')
             return
@@ -1033,7 +1175,16 @@ class App(ctk.CTk):
         self.generation_counter += 1
         generation_id = self.generation_counter
         source = self.sd_input_image.copy() if self.sd_input_image is not None else None
-        mask = self.mask_image.copy() if self.mask_image is not None else None
+        mask = self.mask_image.copy() if self.has_valid_mask(self.mask_image) else None
+        if mask is None:
+            self.mask_source = None
+            self.console.log('No segment is present on the input preview • automatic segmentation will run')
+        elif self.mask_source == 'manual':
+            self.console.log('Manual segment available • skipping automatic segmentation')
+        elif self.mask_source == 'auto':
+            self.console.log('Automatic segment available • reusing existing mask')
+        else:
+            self.console.log('Existing mask available • skipping automatic segmentation')
         original_image = self.original_image.copy()
         crop_box = self.get_effective_crop_box()
         config = dict(self.config)
@@ -1053,6 +1204,7 @@ class App(ctk.CTk):
         self.generate_btn.configure(state='disabled')
         self.upload_btn.configure(state='disabled')
         self.reload_mask_btn.configure(state='disabled')
+        self.manual_segment_btn.configure(state='disabled')
         self.save_btn.configure(state='disabled')
         self.model_menu.configure(state='disabled')
         self.image_class_menu.configure(state='disabled')
@@ -1096,18 +1248,20 @@ class App(ctk.CTk):
                 source = self.preprocess_uploaded_image(original_image)
             else:
                 source = source.copy()
-            if mask is None or mask.size != source.size:
+            if not self.has_valid_mask(mask):
                 self.segmentation_loading = True
                 self.after(0, self.update_crop_button_state)
-                self.console.log('Segmenting...')
+                self.console.log('No segment is present on the input preview • running automatic segmentation...')
                 mask = self.make_mask(source)
                 self.mask_image = mask.copy()
+                self.mask_source = 'auto'
                 self.after(0, self.show_input)
                 self.segmentation_loading = False
                 self.after(0, self.update_crop_button_state)
-            mask = mask.copy()
-            if mask.size != source.size:
-                raise RuntimeError(f'Processed input and cached mask size do not match: input={source.size}, mask={mask.size}.')
+            elif mask.size != source.size:
+                self.console.log(f'Reusing {self.mask_source or "existing"} segment • resizing mask to processed input')
+                mask = mask.resize(source.size, Image.Resampling.NEAREST)
+                self.mask_image = mask.copy()
             if np.asarray(mask, dtype=np.uint8).max() < 10:
                 raise RuntimeError('No selected segmentation area was detected by segdinosam2.')
             self.check_stop_requested()
@@ -1307,10 +1461,12 @@ class App(ctk.CTk):
 
     def mark_crop_changed(self, message):
         self.mask_image = None
+        self.mask_source = None
         self.sd_input_image = None
         self.output_image = None
         self.output_showing_original = False
         self.reload_mask_btn.configure(state='normal')
+        self.update_manual_segment_buttons()
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
         self.console.log(message)
@@ -1350,6 +1506,9 @@ class App(ctk.CTk):
         return None
 
     def start_crop(self, event):
+        if self.manual_segment_mode:
+            self.select_manual_segment(event)
+            return
         if self.original_image is None or self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
             return
         if self.input_display_info is None:
@@ -1362,6 +1521,8 @@ class App(ctk.CTk):
         self.cropping = True
 
     def update_crop_selection(self, event):
+        if self.manual_segment_mode:
+            return
         if not self.cropping or self.input_display_info is None or self.crop_box_start is None:
             return
         x, y, width, height = self.input_display_info
@@ -1412,6 +1573,8 @@ class App(ctk.CTk):
         self.draw_crop_overlay()
 
     def finish_crop(self, event):
+        if self.manual_segment_mode:
+            return
         if not self.cropping:
             return
         self.cropping = False
@@ -1423,10 +1586,12 @@ class App(ctk.CTk):
         else:
             self.crop_box = box
         self.mask_image = None
+        self.mask_source = None
         self.sd_input_image = None
         self.output_image = None
         self.output_showing_original = False
         self.reload_mask_btn.configure(state='normal')
+        self.update_manual_segment_buttons()
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
         self.console.log('Crop changed')
@@ -1442,10 +1607,12 @@ class App(ctk.CTk):
             return
         self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
         self.mask_image = None
+        self.mask_source = None
         self.sd_input_image = None
         self.output_image = None
         self.output_showing_original = False
         self.reload_mask_btn.configure(state='normal')
+        self.update_manual_segment_buttons()
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
         self.console.log('Crop reset')
