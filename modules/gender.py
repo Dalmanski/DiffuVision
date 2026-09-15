@@ -24,7 +24,7 @@ print(f"Using device: {device}")
 
 print("Loading CLIP model...")
 model = _load_hf_model(CLIPModel, MODEL_NAME).to(device)
-processor = _load_hf_model(CLIPProcessor, MODEL_NAME)
+processor = _load_hf_model(CLIPProcessor, MODEL_NAME, use_fast=False)
 
 PROMPTS = [
     "a photo, anime, cartoon, or 3D image of a boy or male character",

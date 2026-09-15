@@ -7,24 +7,14 @@ import numpy as np, torch, cv2
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
-import modules.segdinosam2 as segdinosam2
-import modules.selectsegsam2 as selectsegsam2
-import modules.imgclass as imgclass
-import components.json_textbox as json_textbox
-import components.console_textbox as console_textbox
-REAL = imgclass.REAL
-ANIME = imgclass.ANIME
-THREE_D = imgclass.THREE_D
-CARTOON = imgclass.CARTOON
-import modules.gender as gender
-import model.upscale_img as upscale_img
-
-try:
-    gender.model.to('cpu')
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-except Exception:
-    pass
+from modules.segdinosam2 import SegDinoSAM2
+from modules.selectsegsam2 import SAM2Segmenter
+from modules.imgclass import REAL, ANIME, THREE_D, CARTOON, classify_image
+from components.json_textbox import JSONTextBox
+from components.console_textbox import ConsoleTextBox, create_redirects
+from utils.config_manager import ConfigManager
+from modules import gender as gender_module
+from model.upscale_img import enhance
 
 BASE_DIR = Path(__file__).resolve().parent
 ctk.set_appearance_mode('system')
@@ -32,57 +22,6 @@ ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'data/diffusion_config/default.json'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-def read_env_file():
-    env_path = BASE_DIR / '.env'
-    values = {}
-    if not env_path.exists():
-        return values
-    try:
-        for line in env_path.read_text(encoding='utf-8').splitlines():
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' in line:
-                key, value = line.split('=', 1)
-            elif ':' in line:
-                key, value = line.split(':', 1)
-            else:
-                continue
-            values[key.strip()] = value.strip().strip('"').strip("'")
-    except Exception:
-        return {}
-    return values
-
-def discover_models():
-    env_value = read_env_file().get('SD_INPAINT_MODEL', '').strip()
-    paths = []
-    if env_value:
-        try:
-            parsed = json.loads(env_value)
-            if isinstance(parsed, list):
-                paths.extend(parsed)
-            elif isinstance(parsed, str):
-                paths.append(parsed)
-        except json.JSONDecodeError:
-            paths.append(env_value)
-    if MODEL_DIR.exists():
-        paths.extend((str(path) for path in sorted(MODEL_DIR.glob('*.safetensors'), key=lambda item: item.name.lower())))
-    models = {}
-    seen = set()
-    for raw_path in paths:
-        if not raw_path:
-            continue
-        path = Path(str(raw_path).strip())
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        path = path.resolve(strict=False)
-        key = str(path).lower()
-        if key in seen or not path.exists() or path.suffix.lower() != '.safetensors':
-            continue
-        seen.add(key)
-        models[path.stem] = str(path)
-    return models
 
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
@@ -149,13 +88,14 @@ class App(ctk.CTk):
         self.active_config_name = 'data/diffusion_config/default.json'
         self.active_config_path = DEFAULT_JSON
         self.config = {}
-        self.env_path = BASE_DIR / '.env'
+        self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
+        self.env_path = self.config_manager.env_path
         self.output_showing_original = False
         self.load_env_settings()
         self.model_var.set(DEFAULT_MODEL)
         self.protocol('WM_DELETE_WINDOW', self.destroy)
         self.ui()
-        self.stdout_redirect, self.stderr_redirect = console_textbox.create_redirects(self.console)
+        self.stdout_redirect, self.stderr_redirect = create_redirects(self.console)
         sys.stdout = self.stdout_redirect
         sys.stderr = self.stderr_redirect
         self.after(100, self.maximize)
@@ -237,7 +177,7 @@ class App(ctk.CTk):
         self.config_menu.grid(row=0, column=0, sticky='ew', padx=(0, 5))
         self.autosave_btn = ctk.CTkButton(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
-        self.json_box = json_textbox.JSONTextBox(self.left_frame, height=220, font_size=12, fg_color='#000000')
+        self.json_box = JSONTextBox(self.left_frame, height=220, font_size=12, fg_color='#000000')
         self.json_box.grid(row=7, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.json_box.set_change_callback(self.json_changed)
         self.output_options_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
@@ -265,7 +205,7 @@ class App(ctk.CTk):
         self.output_canvas.grid(row=0, column=0, sticky='nsew')
         self.switch_image_btn = ctk.CTkButton(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34, corner_radius=6, font=('Segoe UI Symbol', 18), fg_color='#21262D', hover_color='#30363D')
         self.switch_image_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.console = console_textbox.ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
+        self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
         self.save_clear_row = ctk.CTkFrame(self.right_frame, fg_color='transparent')
         self.save_clear_row.grid(row=2, column=0, sticky='ew', padx=10, pady=(6, 10))
@@ -302,6 +242,19 @@ class App(ctk.CTk):
         if self.stop_requested.is_set():
             raise GenerationStopped()
 
+    def reset_preview_state(self):
+        self.mask_image = None
+        self.mask_source = None
+        self.sd_input_image = None
+        self.output_image = None
+        self.output_showing_original = False
+
+    def refresh_crop_related_ui(self, *, allow_reload=True):
+        self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing and allow_reload else 'disabled')
+        self.update_manual_segment_buttons()
+        self.update_crop_button_state()
+        self.generate_btn.configure(state='disabled')
+
     def update_crop_button_state(self):
         state = 'normal' if self.original_image is not None and not self.processing and not self.segmentation_loading and not self.manual_segment_loading else 'disabled'
         if hasattr(self, 'manual_segment_mode') and self.manual_segment_mode:
@@ -331,11 +284,15 @@ class App(ctk.CTk):
             self.disable_manual_segment_mode()
             self.console.log('SAM2 point selection disabled')
             return
+        try:
+            self.sync_config()
+        except Exception as e:
+            self.console.log(f'Configuration Error: {e}')
+            return
         self.manual_segment_mode = True
         self.manual_segment_loading = True
         self.manual_segment_btn.configure(state='disabled')
         self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
-        self.reload_mask_btn.configure(state='disabled')
         self.update_crop_button_state()
         self.console.log('Loading SAM2 point selection...')
         threading.Thread(target=self.load_manual_segmenter_worker, daemon=True).start()
@@ -343,7 +300,7 @@ class App(ctk.CTk):
     def load_manual_segmenter_worker(self):
         try:
             image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
-            self.manual_segmenter = selectsegsam2.SAM2Segmenter()
+            self.manual_segmenter = SAM2Segmenter()
             self.manual_segmenter.load_image(image)
             self.manual_selection_image = image
             self.console.log('SAM2 point selection ready • click the image to append segments')
@@ -366,6 +323,7 @@ class App(ctk.CTk):
         if segmenter is not None:
             segmenter.close()
         self.cleanup_gpu()
+        self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing and not self.segmentation_loading else 'disabled')
         self.update_crop_button_state()
         self.show_input()
 
@@ -386,7 +344,10 @@ class App(ctk.CTk):
 
     def manual_segment_worker(self, image_x, image_y):
         try:
-            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=float(self.config.get('mask_outline_thickness', 3.0)), blur=float(self.config.get('mask_blur', 4)))
+            thickness = float(self.config.get('mask_outline_thickness', 0.0))
+            blur = float(self.config.get('mask_blur', 0.0))
+            self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
+            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=thickness, blur=blur)
             self.mask_image = mask
             self.mask_source = 'manual'
             self.output_image = None
@@ -408,10 +369,7 @@ class App(ctk.CTk):
             return
         if self.manual_segmenter is not None:
             self.manual_segmenter.clear_all_segments()
-        self.mask_image = None
-        self.mask_source = None
-        self.output_image = None
-        self.output_showing_original = False
+        self.reset_preview_state()
         self.generate_btn.configure(state='disabled')
         self.console.log('All manually appended segments removed')
         self.show_input()
@@ -504,24 +462,17 @@ class App(ctk.CTk):
             return
         ratio = self.get_crop_ratio()
         self.crop_box = self.clamp_fixed_crop_box(crop_box, ratio)
-        self.mask_image = None
-        self.mask_source = None
-        self.sd_input_image = None
-        self.output_image = None
-        self.output_showing_original = False
-        self.reload_mask_btn.configure(state='normal' if not self.processing else 'disabled')
-        self.update_crop_button_state()
-        self.generate_btn.configure(state='disabled')
+        self.reset_preview_state()
+        self.refresh_crop_related_ui()
         self.console.log('Person crop ready')
         self.console.log('Crop changed')
         self.show_input()
         self.show_output()
 
     def load_env_settings(self):
-        values = read_env_file()
+        values = self.config_manager.read_env_file()
         global MODEL_OPTIONS, DEFAULT_MODEL
-        MODEL_OPTIONS = discover_models()
-        DEFAULT_MODEL = next(iter(MODEL_OPTIONS), '')
+        MODEL_OPTIONS, DEFAULT_MODEL = self.config_manager.discover_models(MODEL_DIR)
         config_value = values.get('JSON_config', '').replace('\\', '/')
         autosave_value = values.get('JSON_autosave', None)
         if config_value:
@@ -537,61 +488,16 @@ class App(ctk.CTk):
             self.autosave_var.set(autosave_value.strip().lower() in ('1', 'true', 'yes', 'on'))
 
     def write_env_settings(self):
-        values = {}
-        if self.env_path.exists():
-            try:
-                for line in self.env_path.read_text(encoding='utf-8').splitlines():
-                    line = line.strip()
-                    if not line or line.startswith('#') or ':' not in line:
-                        continue
-                    key, value = line.split(':', 1)
-                    values[key.strip()] = value.strip().strip('"').strip("'")
-            except Exception:
-                pass
-        values['JSON_config'] = self.relative_config_path()
-        values['JSON_autosave'] = 'True' if self.autosave_var.get() else 'False'
-        lines = []
-        written = set()
-        if self.env_path.exists():
-            try:
-                for line in self.env_path.read_text(encoding='utf-8').splitlines():
-                    stripped = line.strip()
-                    if not stripped or stripped.startswith('#') or ':' not in stripped:
-                        lines.append(line)
-                        continue
-                    key = stripped.split(':', 1)[0].strip()
-                    if key == 'JSON_config':
-                        lines.append(f'JSON_config: "{values["JSON_config"]}"')
-                        written.add(key)
-                    elif key == 'JSON_autosave':
-                        lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
-                        written.add(key)
-                    else:
-                        lines.append(line)
-            except Exception:
-                lines = []
-        if 'JSON_config' not in written:
-            lines.append(f'JSON_config: "{values["JSON_config"]}"')
-        if 'JSON_autosave' not in written:
-            lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
-        self.env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        self.config_manager.write_env_settings(self.active_config_path, self.autosave_var.get())
 
     def relative_config_path(self):
-        try:
-            return self.active_config_path.relative_to(BASE_DIR).as_posix()
-        except Exception:
-            return str(self.active_config_path).replace('\\', '/')
+        return self.config_manager.relative_config_path(self.active_config_path)
 
     def relative_display_path(self, path):
-        try:
-            return path.relative_to(BASE_DIR).as_posix()
-        except Exception:
-            return str(path).replace('\\', '/')
+        return self.config_manager.relative_display_path(path)
 
     def refresh_config_files(self):
-        data_dir = BASE_DIR / 'data' / 'diffusion_config'
-        data_dir.mkdir(parents=True, exist_ok=True)
-        self.config_files = sorted([p for p in data_dir.glob('*.json') if p.is_file()], key=lambda p: p.name.lower())
+        self.config_files = self.config_manager.refresh_config_files(BASE_DIR)
         values = [self.relative_display_path(p) for p in self.config_files]
         self.config_menu.configure(values=values if values else ['data/diffusion_config/default.json'])
 
@@ -659,30 +565,30 @@ class App(ctk.CTk):
                 pass
 
     def load_config(self, path):
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f'Configuration file was not found:\n\n{path}')
-        data = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(data, dict):
-            raise ValueError(f'{path.name} must contain a JSON object.')
-        self.config = data
-        self.active_config_path = path
+        self.config, self.active_config_path = self.config_manager.load_config(path)
         self.active_config_name = self.relative_config_path()
         self.json_box.delete('1.0', 'end')
         self.json_box.insert('1.0', json.dumps(self.config, indent=4, ensure_ascii=False))
         if hasattr(self, 'config_menu'):
-            self.config_menu.set(self.relative_display_path(path))
+            self.config_menu.set(self.relative_display_path(self.active_config_path))
         self.console.log(f'Loaded {Path(self.active_config_name).name}')
 
     def json_changed(self, event=None):
-        if not self.autosave_var.get():
+        text = self.json_box.get('1.0', 'end').strip()
+        if not text:
+            return
+        try:
+            self.config = self.config_manager.sync_config(self.active_config_path, text, False)
+        except Exception as e:
+            self.console.log(f'JSON error: {e}')
             return
         if self.save_job:
             try:
                 self.after_cancel(self.save_job)
             except Exception:
                 pass
-        self.save_job = self.after(700, self.save_json)
+        if self.autosave_var.get():
+            self.save_job = self.after(700, self.save_json)
 
     def save_json(self):
         self.save_job = None
@@ -690,11 +596,7 @@ class App(ctk.CTk):
             return
         try:
             text = self.json_box.get('1.0', 'end').strip()
-            data = json.loads(text)
-            if not isinstance(data, dict):
-                raise ValueError('JSON must be an object.')
-            self.config = data
-            self.active_config_path.write_text(text, encoding='utf-8')
+            self.config = self.config_manager.save_json(self.active_config_path, text, self.autosave_var.get())
             self.write_env_settings()
             self.console.log('Config saved')
         except Exception as e:
@@ -702,13 +604,7 @@ class App(ctk.CTk):
 
     def sync_config(self):
         text = self.json_box.get('1.0', 'end').strip()
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise ValueError('JSON must be an object.')
-        self.config = data
-        if self.autosave_var.get():
-            self.active_config_path.write_text(text, encoding='utf-8')
-            self.write_env_settings()
+        self.config = self.config_manager.sync_config(self.active_config_path, text, self.autosave_var.get())
 
     def unload_pipe(self):
         if self.pipe is not None:
@@ -752,10 +648,7 @@ class App(ctk.CTk):
             self.unload_pipe()
             dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
             self.console.log(f'Loading {model_name}')
-            try:
-                pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
-            except TypeError:
-                pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None)
+            pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(DEVICE)
             pipe.enable_attention_slicing()
@@ -799,18 +692,16 @@ class App(ctk.CTk):
         self.console.log(f'Gender: {detected_gender.upper()}')
 
     def predict_gender_image(self, file_path):
-        model = getattr(gender, 'model', None)
-        original_device = getattr(gender, 'device', torch.device('cpu'))
+        model = getattr(gender_module, 'model', None)
         if model is None:
             raise RuntimeError('gender.py model is not available.')
+
+        target_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        gender_module.device = target_device
         try:
-            model.to(original_device)
-            return gender.predict_gender(file_path)
+            model.to(target_device)
+            return gender_module.predict_gender(file_path)
         finally:
-            try:
-                model.to('cpu')
-            except Exception:
-                pass
             self.cleanup_gpu()
 
     def prepare_uploaded_image(self, path):
@@ -964,7 +855,7 @@ class App(ctk.CTk):
 
     def ensure_segmentation(self):
         if not hasattr(self, 'segmentation') or self.segmentation is None:
-            self.segmentation = segdinosam2.SegDinoSAM2()
+            self.segmentation = SegDinoSAM2()
 
     def load_segmentation(self):
         self.ensure_segmentation()
@@ -1062,7 +953,7 @@ class App(ctk.CTk):
             processed = self.resize_image(processed)
         if self.esrgan_input_var.get():
             self.console.log('Enhancing...')
-            processed = upscale_img.enhance(processed, output=False, logger=self.console.log, output_target=OUTPUT_TARGET)
+            processed = enhance(processed, output=False, logger=self.console.log, output_target=OUTPUT_TARGET)
             if self.resize_var.get():
                 processed = self.resize_image(processed)
         self.sd_input_image = processed.copy()
@@ -1072,8 +963,8 @@ class App(ctk.CTk):
     def make_mask(self, image):
         segmentation_positive_prompt = str(self.config.get('segmentation_positive_prompt', ''))
         segmentation_negative_prompt = str(self.config.get('segmentation_negative_prompt', ''))
-        thickness = float(self.config.get('mask_outline_thickness', 3.0))
-        blur = float(self.config.get('mask_blur', 4))
+        thickness = float(self.config.get('mask_outline_thickness', 0.0))
+        blur = float(self.config.get('mask_blur', 0.0))
         if thickness < 0:
             raise ValueError('mask_outline_thickness cannot be negative.')
         if blur < 0:
@@ -1217,7 +1108,7 @@ class App(ctk.CTk):
         threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
-        return imgclass.classify_image(file_path)
+        return classify_image(file_path)
 
     def composite_mask(self, base, generated, mask):
         if generated.size != base.size:
@@ -1233,11 +1124,11 @@ class App(ctk.CTk):
             detected_gender = str(gender_result[0]).strip().lower()
             if detected_gender not in ('male', 'female', 'neutral'):
                 detected_gender = 'neutral'
-            steps = int(config.get('steps', 50))
-            cfg = float(config.get('cfg', 7.5))
-            strength = float(config.get('strength', 0.99))
+            steps = int(config.get('steps'))
+            cfg = float(config.get('cfg'))
+            strength = float(config.get('strength'))
             seed = int(config.get('seed', -1))
-            guidance_rescale = float(config.get('guidance_rescale', 0.0))
+            guidance_rescale = float(config.get('guidance_rescale'))
             positive_prompt = str(config.get('positive_prompt', ''))
             negative_prompt = str(config.get('negative_prompt', ''))
             if apply_class_gender:
@@ -1295,7 +1186,7 @@ class App(ctk.CTk):
             del result
             generated = self.composite_mask(init, generated, mask)
             if esrgan_output:
-                generated = upscale_img.enhance(generated, output=True, logger=self.console.log, output_target=OUTPUT_TARGET)
+                generated = enhance(generated, output=True, logger=self.console.log, output_target=OUTPUT_TARGET)
             self.check_stop_requested()
             if full_image_output:
                 final_image = self.overlay_generated_crop(original_image, generated, crop_box)
@@ -1460,15 +1351,8 @@ class App(ctk.CTk):
         return self.clamp_crop_box((left, top, right, bottom))
 
     def mark_crop_changed(self, message):
-        self.mask_image = None
-        self.mask_source = None
-        self.sd_input_image = None
-        self.output_image = None
-        self.output_showing_original = False
-        self.reload_mask_btn.configure(state='normal')
-        self.update_manual_segment_buttons()
-        self.update_crop_button_state()
-        self.generate_btn.configure(state='disabled')
+        self.reset_preview_state()
+        self.refresh_crop_related_ui(allow_reload=True)
         self.console.log(message)
         self.show_input()
         self.show_output()
@@ -1585,15 +1469,8 @@ class App(ctk.CTk):
             self.crop_box = None
         else:
             self.crop_box = box
-        self.mask_image = None
-        self.mask_source = None
-        self.sd_input_image = None
-        self.output_image = None
-        self.output_showing_original = False
-        self.reload_mask_btn.configure(state='normal')
-        self.update_manual_segment_buttons()
-        self.update_crop_button_state()
-        self.generate_btn.configure(state='disabled')
+        self.reset_preview_state()
+        self.refresh_crop_related_ui(allow_reload=True)
         self.console.log('Crop changed')
         self.show_input()
         self.show_output()
@@ -1606,15 +1483,8 @@ class App(ctk.CTk):
         if self.crop_box is None:
             return
         self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
-        self.mask_image = None
-        self.mask_source = None
-        self.sd_input_image = None
-        self.output_image = None
-        self.output_showing_original = False
-        self.reload_mask_btn.configure(state='normal')
-        self.update_manual_segment_buttons()
-        self.update_crop_button_state()
-        self.generate_btn.configure(state='disabled')
+        self.reset_preview_state()
+        self.refresh_crop_related_ui(allow_reload=True)
         self.console.log('Crop reset')
         self.show_input()
         self.show_output()

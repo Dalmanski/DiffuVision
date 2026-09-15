@@ -4,10 +4,10 @@
     "segmentation_positive_prompt": "person",
     "segmentation_negative_prompt": "face, hair, eyes, hands",
     "steps": 44,
-    "cfg": 7,
+    "cfg": 7.5,
     "strength": 0.92,
     "seed": -1,
     "guidance_rescale": 0,
-    "mask_blur": 0,
-    "mask_outline_thickness": 3
+    "mask_blur": 2.5,
+    "mask_outline_thickness": 4
 }

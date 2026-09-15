@@ -181,7 +181,7 @@ class GroundingDINO:
             return
         print()
         print("Loading Grounding DINO...")
-        self.processor = _load_hf_model(AutoProcessor, GROUNDING_DINO_MODEL_ID)
+        self.processor = _load_hf_model(AutoProcessor, GROUNDING_DINO_MODEL_ID, use_fast=False)
         print("  > Processor loaded.")
         if self.preferred_device == "cuda":
             try:
@@ -196,7 +196,7 @@ class GroundingDINO:
                 print("  > DINO GPU load failed.")
                 print(f"  > {e}")
                 self.unload()
-                self.processor = _load_hf_model(AutoProcessor, GROUNDING_DINO_MODEL_ID)
+                self.processor = _load_hf_model(AutoProcessor, GROUNDING_DINO_MODEL_ID, use_fast=False)
                 self.model = _load_hf_model(AutoModelForZeroShotObjectDetection, GROUNDING_DINO_MODEL_ID)
                 self.model = self.model.to("cpu")
                 self.model.eval()
