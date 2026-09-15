@@ -9,7 +9,8 @@ sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
 import modules.segdinosam2 as segdinosam2
 import modules.imgclass as imgclass
-import modules.json_textbox as json_textbox
+import components.json_textbox as json_textbox
+import components.console_textbox as console_textbox
 REAL = imgclass.REAL
 ANIME = imgclass.ANIME
 THREE_D = imgclass.THREE_D
@@ -25,8 +26,8 @@ except Exception:
     pass
 
 BASE_DIR = Path(__file__).resolve().parent
-ctk.set_appearance_mode('Dark')
-ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'custom.json'))
+ctk.set_appearance_mode('system')
+ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'data/diffusion_config/default.json'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -90,24 +91,6 @@ RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16'
 OUTPUT_TARGET = 1080
 IMAGE_CLASSES = [REAL, ANIME, THREE_D, CARTOON]
 
-class ConsoleRedirect:
-    def __init__(self, app):
-        self.app = app
-
-    def write(self, text):
-        if not text or '[DEBUG]' in text:
-            return
-        if '\r' in text:
-            parts = text.split('\r')
-            if len(parts) > 1:
-                text = parts[-1]
-            self.app.console_log(text, live=True)
-        else:
-            self.app.console_log(text)
-
-    def flush(self):
-        pass
-
 class GenerationStopped(Exception):
     pass
 
@@ -120,7 +103,6 @@ class App(ctk.CTk):
         self.minsize(1100, 900)
         self.pipe = None
         self.current_model_name = None
-        self.current_model_id = None
         self.pipeline_dtype = None
         self.segmentation = None
         self.original_image = None
@@ -147,11 +129,10 @@ class App(ctk.CTk):
         self.input_display_info = None
         self.cropping = False
         self.active_crop_handle = None
-        self.cropped_original_image = None
         self.resize_var = ctk.BooleanVar(value=True)
         self.esrgan_input_var = ctk.BooleanVar(value=False)
         self.esrgan_output_var = ctk.BooleanVar(value=False)
-        self.full_image_output_var = ctk.BooleanVar(value=False)
+        self.full_image_output_var = ctk.BooleanVar(value=True)
         self.apply_class_gender_var = ctk.BooleanVar(value=True)
         self.stop_requested = threading.Event()
         self.autosave_var = ctk.BooleanVar(value=True)
@@ -168,8 +149,7 @@ class App(ctk.CTk):
         self.model_var.set(DEFAULT_MODEL)
         self.protocol('WM_DELETE_WINDOW', self.destroy)
         self.ui()
-        self.stdout_redirect = ConsoleRedirect(self)
-        self.stderr_redirect = ConsoleRedirect(self)
+        self.stdout_redirect, self.stderr_redirect = console_textbox.create_redirects(self.console)
         sys.stdout = self.stdout_redirect
         sys.stderr = self.stderr_redirect
         self.after(100, self.maximize)
@@ -272,16 +252,15 @@ class App(ctk.CTk):
         self.output_canvas.grid(row=0, column=0, sticky='nsew')
         self.switch_image_btn = ctk.CTkButton(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34, corner_radius=6, font=('Segoe UI Symbol', 18), fg_color='#21262D', hover_color='#30363D')
         self.switch_image_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.console = ctk.CTkTextbox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
+        self.console = console_textbox.ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
-        self.console.configure(state='disabled')
         self.save_clear_row = ctk.CTkFrame(self.right_frame, fg_color='transparent')
         self.save_clear_row.grid(row=2, column=0, sticky='ew', padx=10, pady=(6, 10))
         self.save_clear_row.grid_columnconfigure(0, weight=1)
         self.save_clear_row.grid_columnconfigure(1, weight=0)
         self.save_btn = ctk.CTkButton(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.clear_btn = ctk.CTkButton(self.save_clear_row, text='CLEAR', command=self.clear_console, height=40, width=100)
+        self.clear_btn = ctk.CTkButton(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.input_canvas.bind('<Configure>', lambda e: self.show_input())
         self.input_canvas.bind('<ButtonPress-1>', self.start_crop)
@@ -303,7 +282,7 @@ class App(ctk.CTk):
         if not self.processing:
             return
         self.stop_requested.set()
-        self.console_log('Stopping...')
+        self.console.log('Stopping...')
         self.generate_btn.configure(state='disabled', text='STOPPING...')
 
     def check_stop_requested(self):
@@ -318,25 +297,25 @@ class App(ctk.CTk):
 
     def auto_fit_crop_to_person(self):
         if self.original_image is None:
-            self.console_log('No image')
+            self.console.log('No image')
             return
         if self.processing:
-            self.console_log('Generation running')
+            self.console.log('Generation running')
             return
         if self.model_loading:
-            self.console_log('Model loading')
+            self.console.log('Model loading')
             return
         if self.segmentation_loading:
-            self.console_log('Segmentation running')
+            self.console.log('Segmentation running')
             return
         if self.classification_loading:
-            self.console_log('Classification running')
+            self.console.log('Classification running')
             return
         self.segmentation_loading = True
         self.update_crop_button_state()
         self.reload_mask_btn.configure(state='disabled')
         self.generate_btn.configure(state='disabled')
-        self.console_log('Finding person...')
+        self.console.log('Finding person...')
         threading.Thread(target=self.auto_fit_crop_worker, daemon=True).start()
 
     def auto_fit_crop_worker(self):
@@ -387,7 +366,7 @@ class App(ctk.CTk):
             crop_box = self.clamp_fixed_crop_box(proposed_crop_box, ratio)
             self.after(0, lambda box=crop_box: self.apply_auto_person_crop(box))
         except Exception as e:
-            self.console_log(f'Automatic crop error: {e}')
+            self.console.log(f'Automatic crop error: {e}')
         finally:
             self.unload_segmentation()
             self.cleanup_gpu()
@@ -402,7 +381,6 @@ class App(ctk.CTk):
             return
         ratio = self.get_crop_ratio()
         self.crop_box = self.clamp_fixed_crop_box(crop_box, ratio)
-        self.cropped_original_image = self.get_cropped_image(self.original_image)
         self.mask_image = None
         self.sd_input_image = None
         self.output_image = None
@@ -410,9 +388,8 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='normal' if not self.processing else 'disabled')
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
-        left, top, right, bottom = self.crop_box
-        self.console_log('Person crop ready')
-        self.console_log('Crop changed')
+        self.console.log('Person crop ready')
+        self.console.log('Crop changed')
         self.show_input()
         self.show_output()
 
@@ -521,7 +498,7 @@ class App(ctk.CTk):
             self.load_config(target)
             self.write_env_settings()
         except Exception as e:
-            self.console_log(f'Configuration Error: {e}')
+            self.console.log(f'Configuration Error: {e}')
 
     def toggle_autosave(self):
         if self.processing:
@@ -539,43 +516,6 @@ class App(ctk.CTk):
             self.autosave_btn.configure(text='AUTOSAVE: ON', fg_color='#1f8f3a', hover_color='#176b2c')
         else:
             self.autosave_btn.configure(text='AUTOSAVE: OFF', fg_color='#666666', hover_color='#555555')
-
-    def clear_console(self):
-        try:
-            self.console.configure(state='normal')
-            self.console.delete('1.0', 'end')
-            self.console.configure(state='disabled')
-        except Exception:
-            pass
-
-    def console_log(self, text, color=None, live=False):
-        if text is None or '[DEBUG]' in str(text):
-            return
-        text = str(text)
-        text = text.replace('\x1b[K', '')
-        text = text.replace('\x1b[2K', '')
-        text = text.strip('\n')
-        if not text:
-            return
-        def update():
-            try:
-                self.console.configure(state='normal')
-                if live:
-                    line_start = self.console.index('end-1c linestart')
-                    self.console.delete(line_start, 'end-1c')
-                    self.console.insert('end', text)
-                else:
-                    self.console.insert('end', text)
-                    if not text.endswith('\n'):
-                        self.console.insert('end', '\n')
-                self.console.see('end')
-                self.console.configure(state='disabled')
-            except Exception:
-                pass
-        try:
-            self.after(0, update)
-        except Exception:
-            pass
 
     def cleanup_gpu(self):
         try:
@@ -608,7 +548,7 @@ class App(ctk.CTk):
         self.json_box.insert('1.0', json.dumps(self.config, indent=4, ensure_ascii=False))
         if hasattr(self, 'config_menu'):
             self.config_menu.set(self.relative_display_path(path))
-        self.console_log(f'Loaded {Path(self.active_config_name).name}')
+        self.console.log(f'Loaded {Path(self.active_config_name).name}')
 
     def json_changed(self, event=None):
         if not self.autosave_var.get():
@@ -632,9 +572,9 @@ class App(ctk.CTk):
             self.config = data
             self.active_config_path.write_text(text, encoding='utf-8')
             self.write_env_settings()
-            self.console_log('Config saved')
+            self.console.log('Config saved')
         except Exception as e:
-            self.console_log(f'JSON error: {e}')
+            self.console.log(f'JSON error: {e}')
 
     def sync_config(self):
         text = self.json_box.get('1.0', 'end').strip()
@@ -651,7 +591,6 @@ class App(ctk.CTk):
             del self.pipe
             self.pipe = None
         self.current_model_name = None
-        self.current_model_id = None
         self.pipeline_dtype = None
         self.cleanup_gpu()
 
@@ -661,7 +600,7 @@ class App(ctk.CTk):
     def restore_diffusion_model(self):
         if self.pipe is None:
             return
-        self.console_log(f'Model → {DEVICE.upper()}')
+        self.console.log(f'Model → {DEVICE.upper()}')
         if DEVICE == 'cuda' and self.pipeline_dtype == torch.float16:
             self.pipe.to(DEVICE, dtype=torch.float16)
         else:
@@ -688,7 +627,7 @@ class App(ctk.CTk):
                 raise FileNotFoundError(f'Model "{model_name}" was not found. Add a .safetensors file to the model folder or list it in "SD_INPAINT_MODEL" in .env.')
             self.unload_pipe()
             dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
-            self.console_log(f'Loading {model_name}')
+            self.console.log(f'Loading {model_name}')
             try:
                 pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
             except TypeError:
@@ -703,22 +642,21 @@ class App(ctk.CTk):
                     pass
             self.pipe = pipe
             self.current_model_name = model_name
-            self.current_model_id = model_id
             self.pipeline_dtype = dtype
             self.cleanup_gpu()
             self.models_ready = True
             self.model_loading = False
-            self.console_log(f'{model_name} ready • {DEVICE.upper()}')
+            self.console.log(f'{model_name} ready • {DEVICE.upper()}')
             self.after(0, lambda: self.model_menu.configure(state='normal'))
             self.after(0, self.update_generate_state)
         except Exception as e:
             self.models_ready = False
             self.model_loading = False
             self.segmentation_loading = False
-            self.console_log(f'Error: {e}')
+            self.console.log(f'Error: {e}')
             self.cleanup_gpu()
             self.after(0, lambda: self.model_menu.configure(state='normal'))
-            self.after(0, lambda err=str(e): self.console_log(f'Model Error: {err}'))
+            self.after(0, lambda err=str(e): self.console.log(f'Model Error: {err}'))
 
     def set_image_class_from_result(self, classification):
         best_class = str(classification.get('best_class', '')).strip()
@@ -726,17 +664,15 @@ class App(ctk.CTk):
             best_class = REAL
         self.image_class_var.set(best_class)
         self.image_class_menu.configure(state='normal')
-        best_probability = float(classification.get('best_probability', 0.0))
-        self.console_log(f'Class: {best_class.upper()}')
+        self.console.log(f'Class: {best_class.upper()}')
 
     def set_gender_from_result(self, result):
         detected_gender = str(result[0]).strip().lower()
-        confidence = float(result[1])
         if detected_gender not in ('male', 'female', 'neutral'):
             detected_gender = 'neutral'
         self.gender_var.set(detected_gender)
         self.gender_menu.configure(state='normal')
-        self.console_log(f'Gender: {detected_gender.upper()}')
+        self.console.log(f'Gender: {detected_gender.upper()}')
 
     def predict_gender_image(self, file_path):
         model = getattr(gender, 'model', None)
@@ -760,33 +696,33 @@ class App(ctk.CTk):
             rgba = image.convert('RGBA')
             background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
             image = Image.alpha_composite(background, rgba).convert('RGB')
-            self.console_log('Alpha background filled')
+            self.console.log('Alpha background filled')
         else:
             image = image.convert('RGB')
         return image
 
     def classify_after_upload(self, file_path):
         try:
-            self.console_log('Classifying image...')
+            self.console.log('Classifying image...')
             classification = self.classify_input_image(file_path)
             self.classification_result = classification
             self.after(0, lambda result=classification: self.set_image_class_from_result(result))
-            self.console_log('Classifying gender...')
+            self.console.log('Classifying gender...')
             gender_result = self.predict_gender_image(file_path)
             self.gender_result = gender_result
             self.after(0, lambda result=gender_result: self.set_gender_from_result(result))
-            self.console_log('Classification ready')
+            self.console.log('Classification ready')
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
         except Exception as e:
             self.classification_result = None
             self.gender_result = None
-            self.after(0, lambda err=str(e): self.console_log(f'Image Classification Error: {err}'))
+            self.after(0, lambda err=str(e): self.console.log(f'Image Classification Error: {err}'))
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
             self.after(0, lambda: self.image_class_var.set(REAL))
             self.after(0, lambda: self.gender_var.set('neutral'))
-            self.console_log(f'Classify error: {e}')
+            self.console.log(f'Classify error: {e}')
         finally:
             self.classification_loading = False
             self.after(0, self.update_generate_state)
@@ -810,7 +746,6 @@ class App(ctk.CTk):
             self.set_recommended_ratio(image)
             self.input_image = image.copy()
             self.sd_input_image = None
-            self.cropped_original_image = self.get_cropped_image(image)
             self.output_image = None
             self.output_showing_original = False
             self.mask_image = None
@@ -828,10 +763,10 @@ class App(ctk.CTk):
             self.auto_fit_crop_btn.configure(state='normal')
             self.show_input()
             self.show_output()
-            self.console_log(f'Loaded {self.input_image_name}')
+            self.console.log(f'Loaded {self.input_image_name}')
             threading.Thread(target=self.classify_after_upload, args=(path,), daemon=True).start()
         except Exception as e:
-            self.console_log(f'Image Error: {e}')
+            self.console.log(f'Image Error: {e}')
 
     def set_recommended_ratio(self, image):
         width, height = image.size
@@ -873,7 +808,7 @@ class App(ctk.CTk):
                 nh = max(8, int(round(h * scale / 8) * 8))
         if (nw, nh) == (w, h):
             return image
-        self.console_log(f'Resize → {nw}x{nh}')
+        self.console.log(f'Resize → {nw}x{nh}')
         return image.resize((nw, nh), Image.Resampling.LANCZOS)
 
     def resize_output(self, image):
@@ -939,16 +874,16 @@ class App(ctk.CTk):
         self.generate_btn.configure(state='disabled')
         self.after(0, self.show_output)
         try:
-            self.console_log('Building mask...')
+            self.console.log('Building mask...')
             mask = self.make_mask(image)
             self.mask_image = mask.copy()
             self.after(0, self.show_input)
             self.after(0, self.show_output)
-            self.console_log('Mask ready')
+            self.console.log('Mask ready')
         except Exception as e:
             self.mask_image = None
-            self.console_log(f'Mask error: {e}')
-            self.after(0, lambda err=str(e): self.console_log(f'Mask Error: {err}'))
+            self.console.log(f'Mask error: {e}')
+            self.after(0, lambda err=str(e): self.console.log(f'Mask Error: {err}'))
         finally:
             self.segmentation_loading = False
             self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing else 'disabled'))
@@ -963,7 +898,7 @@ class App(ctk.CTk):
         try:
             self.sync_config()
         except Exception as e:
-            self.console_log(f'Configuration Error: {e}')
+            self.console.log(f'Configuration Error: {e}')
             return
         self.mask_image = None
         self.sd_input_image = None
@@ -973,7 +908,7 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='disabled')
         self.show_input()
         self.show_output()
-        self.console_log('Reloading mask...')
+        self.console.log('Reloading mask...')
         threading.Thread(target=self.reload_mask_worker, daemon=True).start()
 
     def reload_mask_worker(self):
@@ -982,25 +917,24 @@ class App(ctk.CTk):
             self.after(0, self.show_input)
             self.regenerate_mask(processed.copy())
         except Exception as e:
-            self.console_log(f'RELOAD MASK error: {e}')
-            self.after(0, lambda err=str(e): self.console_log(f'Mask Reload Error: {err}'))
+            self.console.log(f'RELOAD MASK error: {e}')
+            self.after(0, lambda err=str(e): self.console.log(f'Mask Reload Error: {err}'))
             self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
 
     def preprocess_uploaded_image(self, image):
         base = image.convert('RGB').copy()
         self.input_image = base.copy()
         cropped = self.get_cropped_image(base)
-        self.cropped_original_image = self.get_cropped_image(image)
         processed = cropped.copy()
         if self.resize_var.get():
             processed = self.resize_image(processed)
         if self.esrgan_input_var.get():
-            self.console_log('Enhancing...')
-            processed = upscale_img.enhance(processed, output=False, logger=self.console_log, output_target=OUTPUT_TARGET)
+            self.console.log('Enhancing...')
+            processed = upscale_img.enhance(processed, output=False, logger=self.console.log, output_target=OUTPUT_TARGET)
             if self.resize_var.get():
                 processed = self.resize_image(processed)
         self.sd_input_image = processed.copy()
-        self.console_log(f'Input ready {processed.width}x{processed.height}')
+        self.console.log(f'Input ready {processed.width}x{processed.height}')
         return processed
 
     def make_mask(self, image):
@@ -1014,7 +948,7 @@ class App(ctk.CTk):
             raise ValueError('mask_blur cannot be negative.')
         self.load_segmentation()
         try:
-            self.console_log('Segmenting...')
+            self.console.log('Segmenting...')
             result = self.segmentation.segment(image, segmentation_positive_prompt, segmentation_negative_prompt, thickness=0)
             masks = getattr(result, 'masks', None)
             if masks is None and isinstance(result, dict):
@@ -1044,8 +978,7 @@ class App(ctk.CTk):
             mask = self.apply_mask_adjustments(raw_mask, thickness)
             if blur > 0:
                 mask = mask.filter(ImageFilter.GaussianBlur(radius=blur))
-            mask_array = np.asarray(mask, dtype=np.uint8)
-            self.console_log(f'Mask ready • {count} mask(s)')
+            self.console.log(f'Mask ready • {count} mask(s)')
             return mask.copy()
         finally:
             self.unload_segmentation()
@@ -1081,21 +1014,21 @@ class App(ctk.CTk):
         if self.processing:
             return
         if self.model_loading or self.segmentation_loading:
-            self.console_log('Models loading')
+            self.console.log('Models loading')
             return
         if self.classification_loading:
-            self.console_log('Classification running')
+            self.console.log('Classification running')
             return
         if not self.models_ready:
-            self.console_log('Model not ready')
+            self.console.log('Model not ready')
             return
         if self.original_image is None:
-            self.console_log('No image')
+            self.console.log('No image')
             return
         try:
             self.sync_config()
         except Exception as e:
-            self.console_log(f'Configuration Error: {e}')
+            self.console.log(f'Configuration Error: {e}')
             return
         self.generation_counter += 1
         generation_id = self.generation_counter
@@ -1114,7 +1047,6 @@ class App(ctk.CTk):
         self.stop_requested.clear()
         esrgan_output = bool(self.esrgan_output_var.get())
         autosave = bool(self.autosave_var.get())
-        source_name = self.input_image_name or (Path(self.input_path).name if self.input_path else '<unnamed>')
         self.processing = True
         self.output_image = None
         self.output_showing_original = False
@@ -1128,9 +1060,9 @@ class App(ctk.CTk):
         self.ratio_menu.configure(state='disabled')
         self.start_time = time.time()
         self.show_output()
-        self.console_log(f'Generation {generation_id} start')
+        self.console.log(f'Generation {generation_id} start')
         self.after(0, self.update_generate_state)
-        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, source_name, generation_id), daemon=True).start()
+        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
         return imgclass.classify_image(file_path)
@@ -1142,11 +1074,10 @@ class App(ctk.CTk):
             mask = mask.resize(base.size, Image.Resampling.NEAREST)
         return Image.composite(generated, base, mask).convert('RGB')
 
-    def worker(self, source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, source_name, generation_id):
+    def worker(self, source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
         try:
             if selected_gender not in ('male', 'female', 'neutral'):
                 selected_gender = 'neutral'
-            detected_class = str(classification.get('best_class', 'unknown'))
             detected_gender = str(gender_result[0]).strip().lower()
             if detected_gender not in ('male', 'female', 'neutral'):
                 detected_gender = 'neutral'
@@ -1161,14 +1092,14 @@ class App(ctk.CTk):
                 positive_prompt, negative_prompt = self.append_gender_prompts(positive_prompt, negative_prompt, selected_gender)
                 positive_prompt, negative_prompt = self.append_classification_prompts(positive_prompt, negative_prompt, selected_class)
             if source is None:
-                self.console_log('Preprocessing...')
+                self.console.log('Preprocessing...')
                 source = self.preprocess_uploaded_image(original_image)
             else:
                 source = source.copy()
             if mask is None or mask.size != source.size:
                 self.segmentation_loading = True
                 self.after(0, self.update_crop_button_state)
-                self.console_log('Segmenting...')
+                self.console.log('Segmenting...')
                 mask = self.make_mask(source)
                 self.mask_image = mask.copy()
                 self.after(0, self.show_input)
@@ -1189,7 +1120,7 @@ class App(ctk.CTk):
             generator = torch.Generator(device=DEVICE).manual_seed(seed)
             if self.pipe is None:
                 raise RuntimeError('Selected diffusion model is not loaded.')
-            self.console_log(f'Seed {seed}')
+            self.console.log(f'Seed {seed}')
             self.restore_diffusion_model()
             scheduler_config = dict(self.pipe.scheduler.config)
             def progress(pipe, step_index, timestep, callback_kwargs):
@@ -1199,9 +1130,9 @@ class App(ctk.CTk):
                 rate = elapsed / step
                 remaining = (steps - step) * rate
                 percent = int(step / steps * 100)
-                self.console_log(f'{percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}] | {model_name}', live=True)
+                self.console.log(f'{percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}] | {model_name}', live=True)
                 return callback_kwargs
-            self.console_log(f'Generating {w}x{h}...')
+            self.console.log(f'Generating {w}x{h}...')
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
                 result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=guidance_rescale)
@@ -1210,7 +1141,7 @@ class App(ctk.CTk):
             del result
             generated = self.composite_mask(init, generated, mask)
             if esrgan_output:
-                generated = upscale_img.enhance(generated, output=True, logger=self.console_log, output_target=OUTPUT_TARGET)
+                generated = upscale_img.enhance(generated, output=True, logger=self.console.log, output_target=OUTPUT_TARGET)
             self.check_stop_requested()
             if full_image_output:
                 final_image = self.overlay_generated_crop(original_image, generated, crop_box)
@@ -1225,12 +1156,12 @@ class App(ctk.CTk):
                 if autosave:
                     self.save()
             self.after(0, finish_generation)
-            self.console_log(f'Generation {generation_id} done • {self.time_text(elapsed)}')
+            self.console.log(f'Generation {generation_id} done • {self.time_text(elapsed)}')
         except GenerationStopped:
-            self.console_log(f'Generation {generation_id} stopped')
+            self.console.log(f'Generation {generation_id} stopped')
         except Exception as e:
-            self.console_log(f'Generation {generation_id} error: {e}')
-            self.after(0, lambda err=str(e): self.console_log(f'Generation Error: {err}'))
+            self.console.log(f'Generation {generation_id} error: {e}')
+            self.after(0, lambda err=str(e): self.console.log(f'Generation Error: {err}'))
         finally:
             self.processing = False
             self.stop_requested.clear()
@@ -1277,7 +1208,7 @@ class App(ctk.CTk):
         else:
             w = max(64, (width // 8) * 8)
             h = max(64, (height // 8) * 8)
-        self.console_log(f'Size {w}x{h} • {ratio}')
+        self.console.log(f'Size {w}x{h} • {ratio}')
         return w, h
 
     def time_text(self, seconds):
@@ -1375,7 +1306,6 @@ class App(ctk.CTk):
         return self.clamp_crop_box((left, top, right, bottom))
 
     def mark_crop_changed(self, message):
-        self.cropped_original_image = self.get_cropped_image(self.original_image)
         self.mask_image = None
         self.sd_input_image = None
         self.output_image = None
@@ -1383,7 +1313,7 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='normal')
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
-        self.console_log(message)
+        self.console.log(message)
         self.show_input()
         self.show_output()
 
@@ -1488,11 +1418,10 @@ class App(ctk.CTk):
         self.active_crop_handle = None
         self.crop_box_start = None
         box = self.clamp_fixed_crop_box(self.crop_box if self.crop_box is not None else (0.0, 0.0, 1.0, 1.0), self.get_crop_ratio())
-        if box[0] <= 0.005 and box[1] <= 0.005 and (box[2] >= 0.995) and (box[3] >= 0.995):
+        if box[0] <= 0.005 and box[1] <= 0.005 and (box[2] >= 0.995 and box[3] >= 0.995):
             self.crop_box = None
         else:
             self.crop_box = box
-        self.cropped_original_image = self.get_cropped_image(self.original_image)
         self.mask_image = None
         self.sd_input_image = None
         self.output_image = None
@@ -1500,7 +1429,7 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='normal')
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
-        self.console_log('Crop changed')
+        self.console.log('Crop changed')
         self.show_input()
         self.show_output()
 
@@ -1512,7 +1441,6 @@ class App(ctk.CTk):
         if self.crop_box is None:
             return
         self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
-        self.cropped_original_image = self.get_cropped_image(self.original_image)
         self.mask_image = None
         self.sd_input_image = None
         self.output_image = None
@@ -1520,7 +1448,7 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='normal')
         self.update_crop_button_state()
         self.generate_btn.configure(state='disabled')
-        self.console_log('Crop reset')
+        self.console.log('Crop reset')
         self.show_input()
         self.show_output()
 
@@ -1588,7 +1516,8 @@ class App(ctk.CTk):
         if not hasattr(self, 'output_canvas'):
             return
         self.output_canvas.delete('all')
-        image = self.sd_input_image if self.output_showing_original else self.output_image
+        comparison_image = self.original_image if self.full_image_output_var.get() else self.sd_input_image
+        image = comparison_image if self.output_showing_original else self.output_image
         if image is None:
             canvas_w = max(1, self.output_canvas.winfo_width())
             canvas_h = max(1, self.output_canvas.winfo_height())
@@ -1605,7 +1534,7 @@ class App(ctk.CTk):
         self.output_canvas.create_image(x, y, anchor='nw', image=self.output_photo)
 
     def switch_output_image(self):
-        if self.output_image is None and self.sd_input_image is None:
+        if self.output_image is None and self.original_image is None and self.sd_input_image is None:
             return
         self.output_showing_original = not self.output_showing_original
         self.show_output()
@@ -1622,9 +1551,9 @@ class App(ctk.CTk):
             if suffix in ('.jpg', '.jpeg'):
                 output = output.convert('RGB')
             output.save(path)
-            self.console_log('Saved')
+            self.console.log('Saved')
         except Exception as e:
-            self.console_log(f'Save Error: {e}')
+            self.console.log(f'Save Error: {e}')
 
 if __name__ == '__main__':
     app = App()

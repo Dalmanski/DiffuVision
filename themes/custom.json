@@ -2,9 +2,11 @@
     "CTk": {
         "fg_color": ["#F5F7FB", "#0B1220"]
     },
+
     "CTkToplevel": {
         "fg_color": ["#FFFFFF", "#0B1220"]
     },
+
     "CTkFrame": {
         "corner_radius": 14,
         "border_width": 1,
@@ -12,6 +14,7 @@
         "top_fg_color": ["#F5F7FB", "#172238"],
         "border_color": ["#D9E0EA", "#2A3952"]
     },
+
     "CTkButton": {
         "corner_radius": 14,
         "border_width": 1,
@@ -21,6 +24,7 @@
         "text_color": ["#162033", "#F5F9FF"],
         "text_color_disabled": ["#98A4B5", "#66758C"]
     },
+
     "CTkLabel": {
         "corner_radius": 0,
         "border_width": 0,
@@ -28,6 +32,7 @@
         "border_color": ["#D9E0EA", "#2A3952"],
         "text_color": ["#182235", "#F1F5FB"]
     },
+
     "CTkEntry": {
         "corner_radius": 12,
         "border_width": 1,
@@ -36,6 +41,7 @@
         "text_color": ["#182235", "#F5F9FF"],
         "placeholder_text_color": ["#7D899B", "#8291A8"]
     },
+
     "CTkTextbox": {
         "corner_radius": 12,
         "border_width": 1,
@@ -45,6 +51,7 @@
         "scrollbar_button_color": ["#C9D5E5", "#354966"],
         "scrollbar_button_hover_color": ["#8C9AB0", "#5C6F8D"]
     },
+
     "CTkScrollableFrame": {
         "fg_color": ["#F5F7FB", "#0B1220"],
         "label_fg_color": ["#F5F7FB", "#0B1220"],
@@ -52,6 +59,7 @@
         "scrollbar_button_color": ["#C9D5E5", "#354966"],
         "scrollbar_button_hover_color": ["#8C9AB0", "#5C6F8D"]
     },
+
     "CTkOptionMenu": {
         "corner_radius": 12,
         "fg_color": ["#FFFFFF", "#162238"],
@@ -63,6 +71,7 @@
         "text_color_disabled": ["#7D899B", "#66758C"],
         "dropdown_text_color": ["#182235", "#F5F9FF"]
     },
+
     "CTkComboBox": {
         "corner_radius": 12,
         "border_width": 1,
@@ -76,6 +85,7 @@
         "dropdown_hover_color": ["#E8F0FF", "#263A5C"],
         "dropdown_text_color": ["#182235", "#F5F9FF"]
     },
+
     "CTkCheckBox": {
         "corner_radius": 7,
         "border_width": 2,
@@ -86,6 +96,7 @@
         "text_color": ["#182235", "#F5F9FF"],
         "text_color_disabled": ["#8D98A9", "#66758C"]
     },
+
     "CTkSwitch": {
         "corner_radius": 1000,
         "border_width": 2,
@@ -97,8 +108,11 @@
         "text_color": ["#182235", "#F5F9FF"],
         "text_color_disabled": ["#8D98A9", "#66758C"]
     },
+
     "CTkSlider": {
         "corner_radius": 1000,
+        "height": 18,
+        "button_length": 18,
         "button_corner_radius": 1000,
         "border_width": 0,
         "fg_color": ["#D7DEE8", "#354966"],
@@ -106,12 +120,15 @@
         "button_color": ["#FFFFFF", "#F5F9FF"],
         "button_hover_color": ["#EEF2F7", "#FFFFFF"]
     },
+
     "CTkProgressBar": {
         "corner_radius": 1000,
         "border_width": 0,
+        "border_color": ["#CBD5E1", "#40506B"],
         "fg_color": ["#D7DEE8", "#24344F"],
         "progress_color": ["#6C63FF", "#8B7CFF"]
     },
+
     "CTkScrollbar": {
         "corner_radius": 1000,
         "border_spacing": 4,
@@ -119,6 +136,7 @@
         "button_color": ["#C9D5E5", "#354966"],
         "button_hover_color": ["#8C9AB0", "#5C6F8D"]
     },
+
     "CTkSegmentedButton": {
         "corner_radius": 12,
         "border_width": 1,
@@ -130,6 +148,7 @@
         "text_color": ["#182235", "#F5F9FF"],
         "text_color_disabled": ["#8D98A9", "#66758C"]
     },
+
     "CTkTabview": {
         "corner_radius": 12,
         "border_width": 0,
@@ -141,6 +160,7 @@
         "segmented_button_unselected_hover_color": ["#D8E0EC", "#263854"],
         "text_color": ["#182235", "#F5F9FF"]
     },
+
     "CTkRadioButton": {
         "corner_radius": 1000,
         "border_width_checked": 6,
@@ -151,11 +171,13 @@
         "text_color": ["#182235", "#F5F9FF"],
         "text_color_disabled": ["#8D98A9", "#66758C"]
     },
+
     "DropdownMenu": {
         "fg_color": ["#FFFFFF", "#111A2B"],
         "hover_color": ["#E8F0FF", "#263A5C"],
         "text_color": ["#182235", "#F5F9FF"]
     },
+
     "CTkFont": {
         "macOS": {
             "family": "SF Pro Display",
