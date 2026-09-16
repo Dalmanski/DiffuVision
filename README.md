@@ -1,4 +1,4 @@
-# DiffuVision AI
+# DiffuVision
 
 > **Work in Progress (WIP)** — This application is not yet available as a standalone `.exe`.
 
@@ -7,6 +7,7 @@
 To run **DiffuVision AI**, execute the Python application using **Visual Studio Code** or your preferred terminal.
 
 > **Hardware Recommendation:** An NVIDIA GPU with CUDA support is strongly recommended. CPU-only execution is currently untested and may result in significantly slower performance.
+I used on RTX 2050, 4GB VRAM and 16GB RAM.
 
 ### 1. Download the Project
 

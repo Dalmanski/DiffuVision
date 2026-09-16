@@ -154,7 +154,7 @@ class SAM2Segmenter:
             raw_mask = raw_mask.resize(tuple(target_size), Image.Resampling.NEAREST)
         array = np.asarray(raw_mask, dtype=np.uint8)
         binary = (array >= 128).astype(np.uint8)
-        thickness = float(thickness) + 5
+        thickness = float(thickness) + 5.5
         if thickness < 0:
             raise ValueError("mask_outline_thickness cannot be negative.")
         if thickness > 0:
@@ -164,7 +164,7 @@ class SAM2Segmenter:
                 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
                 binary = cv2.dilate(binary, kernel, iterations=1)
         mask = Image.fromarray((binary * 255).astype(np.uint8), mode="L")
-        blur = float(blur) + 5
+        blur = float(blur) + 2
         if blur < 0:
             raise ValueError("mask_blur cannot be negative.")
         if blur > 0:
