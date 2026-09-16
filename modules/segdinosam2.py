@@ -2,13 +2,14 @@ import os
 import sys
 import gc
 import socket
+import re
 from io import BytesIO
 from dataclasses import dataclass
 import numpy as np
 import torch
-import transformers
+import torch.nn.functional as F
 from PIL import Image
-from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
+from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection, AutoImageProcessor, AutoModelForSemanticSegmentation
 from rembg import new_session, remove
 
 def _load_hf_model(loader, model_name, **kwargs):
@@ -31,13 +32,15 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 GROUNDING_DINO_MODEL_ID = "IDEA-Research/grounding-dino-tiny"
 REMBG_MODEL_ID = "u2net"
+SEGFORMER_MODEL_ID = "mattmdjaga/segformer_b2_clothes"
+FASHN_MODEL_ID = "fashn-ai/fashn-human-parser"
 DINO_PREFERRED_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAM2_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+SEGFORMER_PREFERRED_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+FASHN_PREFERRED_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 REMBG_SESSION_PROVIDERS = ["CPUExecutionProvider"]
 DINO_BOX_THRESHOLD = 0.30
 DINO_TEXT_THRESHOLD = 0.20
-PERSON_BOX_THRESHOLD = 0.18
-PERSON_TEXT_THRESHOLD = 0.15
 NEGATIVE_BOX_THRESHOLD = 0.18
 NEGATIVE_TEXT_THRESHOLD = 0.15
 MAX_CLOTHING_BOX_AREA_RATIO = 0.60
@@ -59,6 +62,14 @@ REMBG_MASK_THRESHOLD = 8
 REMBG_MASK_ERODE_PIXELS = 1
 COLOR_NAMES = ["RED", "GREEN", "BLUE", "YELLOW", "MAGENTA", "CYAN", "PURPLE", "ORANGE", "SKY BLUE", "LIME"]
 SEGMENT_COLORS = np.array([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (128, 0, 128), (255, 128, 0), (0, 128, 255), (128, 255, 0)], dtype=np.uint8)
+SEGFORMER_CLASS_IDS = {"background": [0], "hat": [1], "hair": [2], "sunglasses": [3], "upper-clothes": [4], "skirt": [5], "pants": [6], "dress": [7], "belt": [8], "left-shoe": [9], "right-shoe": [10], "face": [11], "left-leg": [12], "right-leg": [13], "left-arm": [14], "right-arm": [15], "bag": [16], "scarf": [17]}
+FASHN_CLASS_IDS = {"background": [0], "face": [1], "hair": [2], "top": [3], "dress": [4], "skirt": [5], "pants": [6], "belt": [7], "bag": [8], "hat": [9], "scarf": [10], "glasses": [11], "arms": [12], "hands": [13], "legs": [14], "feet": [15], "torso": [16], "jewelry": [17]}
+AVAILABLE_MODELS = {"dino", "rembg", "segformer_b2", "fashn"}
+
+@dataclass
+class PromptInstruction:
+    model: str
+    text: str
 
 @dataclass
 class SegmentationResult:
@@ -385,11 +396,10 @@ class GroundingDINO:
                 if labels[i] != labels[j]:
                     continue
                 containment = self.box_containment(boxes[i], boxes[j])
-                if containment >= NESTED_CONTAINMENT_THRESHOLD:
-                    if areas[j] > areas[i]:
-                        keep[i] = False
-                        print(f"  Nested box removed: {labels[i]}")
-                        break
+                if containment >= NESTED_CONTAINMENT_THRESHOLD and areas[j] > areas[i]:
+                    keep[i] = False
+                    print(f"  Nested box removed: {labels[i]}")
+                    break
         filtered_boxes = []
         filtered_labels = []
         filtered_scores = []
@@ -492,6 +502,214 @@ class SAM2:
         result[y1:y2 + 1, x1:x2 + 1] = mask[y1:y2 + 1, x1:x2 + 1] > 0
         return result
 
+class SegformerB2Clothes:
+    def __init__(self):
+        self.processor = None
+        self.model = None
+        self.preferred_device = SEGFORMER_PREFERRED_DEVICE
+        self.runtime_device = SEGFORMER_PREFERRED_DEVICE
+
+    def load(self):
+        if self.model is not None:
+            return
+        print()
+        print("Loading SegFormer B2 Clothes...")
+        self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID)
+        if self.preferred_device == "cuda":
+            try:
+                print("  > Loading SegFormer on GPU...")
+                self.model = _load_hf_model(AutoModelForSemanticSegmentation, SEGFORMER_MODEL_ID)
+                self.model = self.model.to("cuda")
+                self.model.eval()
+                self.runtime_device = "cuda"
+                print("  > SegFormer GPU ready.")
+            except Exception as e:
+                print("  > SegFormer GPU load failed.")
+                print(f"  > {e}")
+                self.unload()
+                self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID)
+                self.model = _load_hf_model(AutoModelForSemanticSegmentation, SEGFORMER_MODEL_ID)
+                self.model = self.model.to("cpu")
+                self.model.eval()
+                self.runtime_device = "cpu"
+                print("  > SegFormer CPU fallback ready.")
+        else:
+            self.model = _load_hf_model(AutoModelForSemanticSegmentation, SEGFORMER_MODEL_ID)
+            self.model = self.model.to("cpu")
+            self.model.eval()
+            self.runtime_device = "cpu"
+            print("  > SegFormer CPU ready.")
+
+    def unload(self):
+        if self.model is not None:
+            try:
+                self.model = self.model.to("cpu")
+            except Exception:
+                pass
+        self.model = None
+        self.processor = None
+        gc.collect()
+        clear_cuda()
+
+    def resolve_class_ids(self, category):
+        normalized = str(category).strip().lower()
+        if normalized not in SEGFORMER_CLASS_IDS:
+            supported = ", ".join(SEGFORMER_CLASS_IDS.keys())
+            raise ValueError(f"SegFormer category '{category}' is not supported. Supported labels: {supported}")
+        return SEGFORMER_CLASS_IDS[normalized], normalized
+
+    def predict(self, image, categories):
+        if self.model is None or self.processor is None:
+            raise RuntimeError("SegFormer B2 Clothes is not loaded.")
+        masks = []
+        labels = []
+        inputs = self.processor(images=image, return_tensors="pt")
+        for key, value in list(inputs.items()):
+            if isinstance(value, torch.Tensor):
+                inputs[key] = value.to(self.runtime_device)
+        try:
+            with torch.inference_mode():
+                outputs = self.model(**inputs)
+        except RuntimeError as error:
+            text = str(error).lower()
+            gpu_problem = self.runtime_device == "cuda" and ("out of memory" in text or "expected scalar type" in text or "mat1 and mat2" in text)
+            if not gpu_problem:
+                raise
+            print("  SegFormer GPU issue detected.")
+            print("  Switching to CPU.")
+            self.model = self.model.to("cpu")
+            self.runtime_device = "cpu"
+            inputs = self.processor(images=image, return_tensors="pt")
+            for key, value in list(inputs.items()):
+                if isinstance(value, torch.Tensor):
+                    inputs[key] = value.to("cpu")
+            with torch.inference_mode():
+                outputs = self.model(**inputs)
+        logits = outputs.logits
+        logits = F.interpolate(logits, size=(image.height, image.width), mode="bilinear", align_corners=False)
+        prediction = logits.argmax(dim=1)[0].detach().cpu().numpy()
+        for category in categories:
+            class_ids, normalized = self.resolve_class_ids(category)
+            mask = np.isin(prediction, np.asarray(class_ids, dtype=np.int64))
+            if np.any(mask):
+                masks.append(mask.astype(bool))
+                labels.append(category)
+                print(f"  SegFormer: {category} -> {normalized} pixels={int(np.count_nonzero(mask))}")
+            else:
+                print(f"  SegFormer: {category} produced an empty mask.")
+        del inputs
+        del outputs
+        del logits
+        del prediction
+        gc.collect()
+        if self.runtime_device == "cuda":
+            clear_cuda()
+        return masks, labels
+
+class FashnHumanParser:
+    def __init__(self):
+        self.processor = None
+        self.model = None
+        self.preferred_device = FASHN_PREFERRED_DEVICE
+        self.runtime_device = FASHN_PREFERRED_DEVICE
+
+    def load(self):
+        if self.model is not None:
+            return
+        print()
+        print("Loading FASHN Human Parser...")
+        self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID)
+        if self.preferred_device == "cuda":
+            try:
+                print("  > Loading FASHN on GPU...")
+                self.model = _load_hf_model(AutoModelForSemanticSegmentation, FASHN_MODEL_ID)
+                self.model = self.model.to("cuda")
+                self.model.eval()
+                self.runtime_device = "cuda"
+                print("  > FASHN GPU ready.")
+            except Exception as e:
+                print("  > FASHN GPU load failed.")
+                print(f"  > {e}")
+                self.unload()
+                self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID)
+                self.model = _load_hf_model(AutoModelForSemanticSegmentation, FASHN_MODEL_ID)
+                self.model = self.model.to("cpu")
+                self.model.eval()
+                self.runtime_device = "cpu"
+                print("  > FASHN CPU fallback ready.")
+        else:
+            self.model = _load_hf_model(AutoModelForSemanticSegmentation, FASHN_MODEL_ID)
+            self.model = self.model.to("cpu")
+            self.model.eval()
+            self.runtime_device = "cpu"
+            print("  > FASHN CPU ready.")
+
+    def unload(self):
+        if self.model is not None:
+            try:
+                self.model = self.model.to("cpu")
+            except Exception:
+                pass
+        self.model = None
+        self.processor = None
+        gc.collect()
+        clear_cuda()
+
+    def resolve_class_ids(self, category):
+        normalized = str(category).strip().lower()
+        if normalized not in FASHN_CLASS_IDS:
+            supported = ", ".join(FASHN_CLASS_IDS.keys())
+            raise ValueError(f"FASHN category '{category}' is not supported. Supported labels: {supported}")
+        return FASHN_CLASS_IDS[normalized], normalized
+
+    def predict(self, image, categories):
+        if self.model is None or self.processor is None:
+            raise RuntimeError("FASHN Human Parser is not loaded.")
+        masks = []
+        labels = []
+        inputs = self.processor(images=image, return_tensors="pt")
+        for key, value in list(inputs.items()):
+            if isinstance(value, torch.Tensor):
+                inputs[key] = value.to(self.runtime_device)
+        try:
+            with torch.inference_mode():
+                outputs = self.model(**inputs)
+        except RuntimeError as error:
+            text = str(error).lower()
+            gpu_problem = self.runtime_device == "cuda" and ("out of memory" in text or "expected scalar type" in text or "mat1 and mat2" in text)
+            if not gpu_problem:
+                raise
+            print("  FASHN GPU issue detected.")
+            print("  Switching to CPU.")
+            self.model = self.model.to("cpu")
+            self.runtime_device = "cpu"
+            inputs = self.processor(images=image, return_tensors="pt")
+            for key, value in list(inputs.items()):
+                if isinstance(value, torch.Tensor):
+                    inputs[key] = value.to("cpu")
+            with torch.inference_mode():
+                outputs = self.model(**inputs)
+        logits = outputs.logits
+        logits = F.interpolate(logits, size=(image.height, image.width), mode="bilinear", align_corners=False)
+        prediction = logits.argmax(dim=1)[0].detach().cpu().numpy()
+        for category in categories:
+            class_ids, normalized = self.resolve_class_ids(category)
+            mask = np.isin(prediction, np.asarray(class_ids, dtype=np.int64))
+            if np.any(mask):
+                masks.append(mask.astype(bool))
+                labels.append(category)
+                print(f"  FASHN: {category} -> {normalized} pixels={int(np.count_nonzero(mask))}")
+            else:
+                print(f"  FASHN: {category} produced an empty mask.")
+        del inputs
+        del outputs
+        del logits
+        del prediction
+        gc.collect()
+        if self.runtime_device == "cuda":
+            clear_cuda()
+        return masks, labels
+
 class SegDinoSAM2:
     def __init__(self):
         self.preferred_dino_device = DINO_PREFERRED_DEVICE
@@ -507,6 +725,8 @@ class SegDinoSAM2:
         self.dino = GroundingDINO()
         self.sam2 = SAM2()
         self.rembg = RembgSegmenter()
+        self.segformer_b2 = SegformerB2Clothes()
+        self.fashn = FashnHumanParser()
 
     def load_dino(self):
         self.dino.load()
@@ -526,67 +746,159 @@ class SegDinoSAM2:
     def unload_rembg(self):
         self.rembg.unload()
 
+    def load_segformer_b2(self):
+        self.segformer_b2.load()
+
+    def unload_segformer_b2(self):
+        self.segformer_b2.unload()
+
+    def load_fashn(self):
+        self.fashn.load()
+
+    def unload_fashn(self):
+        self.fashn.unload()
+
+    def normalize_model_name(self, model_name):
+        model_name = str(model_name).strip().lower()
+        if model_name not in AVAILABLE_MODELS:
+            supported = ", ".join(AVAILABLE_MODELS)
+            raise ValueError(f"Unknown model '@{model_name}:'. Supported model names: {supported}")
+        return model_name
+
+    def parse_prompt(self, text):
+        if text is None:
+            return []
+        text = str(text).strip()
+        if not text:
+            return []
+        text = text.replace("\n", " ")
+        instructions = []
+        pattern = re.compile(r"@([A-Za-z0-9_]+)\s*:\s*\[([^\]]*)\]|@([A-Za-z0-9_]+)\s*:\s*([^,@\[]+)|([^,@]+)")
+        for match in pattern.finditer(text):
+            grouped_model = match.group(1)
+            grouped_text = match.group(2)
+            single_model = match.group(3)
+            single_text = match.group(4)
+            default_text = match.group(5)
+            if grouped_model is not None:
+                model = self.normalize_model_name(grouped_model)
+                categories = [item.strip() for item in grouped_text.split(",") if item.strip()]
+                if not categories:
+                    raise ValueError(f"Empty model group for @{grouped_model}:")
+                for category in categories:
+                    instructions.append(PromptInstruction(model=model, text=category))
+                continue
+            if single_model is not None:
+                model = self.normalize_model_name(single_model)
+                category = single_text.strip()
+                if not category:
+                    raise ValueError(f"Empty category for @{single_model}:")
+                instructions.append(PromptInstruction(model=model, text=category))
+                continue
+            if default_text is not None:
+                category = default_text.strip()
+                if category:
+                    instructions.append(PromptInstruction(model="dino", text=category))
+        return instructions
+
+    def split_instructions(self, instructions):
+        groups = {model: [] for model in AVAILABLE_MODELS}
+        for instruction in instructions:
+            groups[instruction.model].append(instruction.text)
+        return groups
+
+    def segment_rembg_instruction(self, image, category):
+        normalized = str(category).strip().lower()
+        if normalized == "person":
+            return self.rembg.segment_foreground(image), "person"
+        if normalized == "background":
+            return self.rembg.segment_background(image), "background"
+        raise ValueError(f"@rembg: only 'person' and 'background' are supported, received '{category}'.")
+
     def segment(self, image, positive_prompt, negative_prompt, thickness=0):
         if not isinstance(image, Image.Image):
             raise TypeError("image must be a PIL Image.")
         image = image.convert("RGB")
         image_np = np.array(image)
-        positive_categories = self.parse_prompt(positive_prompt)
-        negative_categories = self.parse_prompt(negative_prompt)
-        positive_blank = len(positive_categories) == 0
-        positive_all = len(positive_categories) == 1 and self.normalize(positive_categories[0]) == "all"
-        positive_person = len(positive_categories) == 1 and self.normalize(positive_categories[0]) == "person"
-        whole_image_mode = positive_blank or positive_all
-        background_requested = any(self.normalize(value) == "background" for value in negative_categories)
-        actual_negative_categories = [value for value in negative_categories if self.normalize(value) != "background"]
-        rembg_foreground_mask = None
-        if positive_person or background_requested:
-            self.load_rembg()
-            rembg_foreground_mask = self.rembg.segment_foreground(image)
-        if whole_image_mode:
-            positive_boxes = [np.array([0, 0, image.width - 1, image.height - 1], dtype=np.float32)]
-            positive_labels = ["all"]
-            positive_scores = [1.0]
-        elif positive_person:
-            positive_boxes = [np.array([0, 0, image.width - 1, image.height - 1], dtype=np.float32)]
-            positive_labels = ["person"]
-            positive_scores = [1.0]
-        else:
+        positive_instructions = self.parse_prompt(positive_prompt)
+        negative_instructions = self.parse_prompt(negative_prompt)
+        positive_groups = self.split_instructions(positive_instructions)
+        negative_groups = self.split_instructions(negative_instructions)
+        if not positive_instructions:
+            positive_groups["dino"] = ["all"]
+        positive_boxes = []
+        positive_labels = []
+        positive_scores = []
+        negative_boxes = []
+        negative_labels = []
+        negative_scores = []
+        positive_masks = []
+        positive_mask_labels = []
+        negative_masks = []
+        negative_mask_labels = []
+        if positive_groups["dino"]:
             self._ensure_dino()
-            positive_boxes, positive_labels, positive_scores = self.dino.detect(image=image, categories=positive_categories, box_threshold=DINO_BOX_THRESHOLD, text_threshold=DINO_TEXT_THRESHOLD, max_area_ratio=MAX_CLOTHING_BOX_AREA_RATIO, mode="clothing")
+            positive_boxes, positive_labels, positive_scores = self.dino.detect(image=image, categories=positive_groups["dino"], box_threshold=DINO_BOX_THRESHOLD, text_threshold=DINO_TEXT_THRESHOLD, max_area_ratio=MAX_CLOTHING_BOX_AREA_RATIO, mode="clothing")
             if len(positive_boxes) == 0:
                 self.unload_dino()
-                if rembg_foreground_mask is not None:
-                    self.unload_rembg()
-                raise RuntimeError("No positive object was detected.")
-        if actual_negative_categories:
+                raise RuntimeError("No positive object was detected by Grounding DINO.")
+        if negative_groups["dino"]:
             self._ensure_dino()
-            negative_boxes, negative_labels, negative_scores = self.dino.detect(image=image, categories=actual_negative_categories, box_threshold=NEGATIVE_BOX_THRESHOLD, text_threshold=NEGATIVE_TEXT_THRESHOLD, max_area_ratio=MAX_NEGATIVE_BOX_AREA_RATIO, mode="negative")
-        else:
-            negative_boxes = []
-            negative_labels = []
-            negative_scores = []
-        self.unload_dino()
-        need_sam2 = (not positive_person and (not whole_image_mode or len(negative_boxes) > 0)) or len(actual_negative_categories) > 0
+            negative_boxes, negative_labels, negative_scores = self.dino.detect(image=image, categories=negative_groups["dino"], box_threshold=NEGATIVE_BOX_THRESHOLD, text_threshold=NEGATIVE_TEXT_THRESHOLD, max_area_ratio=MAX_NEGATIVE_BOX_AREA_RATIO, mode="negative")
+        if self.dino.model is not None:
+            self.unload_dino()
+        if positive_groups["rembg"]:
+            self._ensure_rembg()
+            for category in positive_groups["rembg"]:
+                mask, label = self.segment_rembg_instruction(image, category)
+                positive_masks.append(mask.astype(bool))
+                positive_mask_labels.append(label)
+        if negative_groups["rembg"]:
+            self._ensure_rembg()
+            for category in negative_groups["rembg"]:
+                mask, label = self.segment_rembg_instruction(image, category)
+                negative_masks.append(mask.astype(bool))
+                negative_mask_labels.append(label)
+        if positive_groups["segformer_b2"]:
+            self._ensure_segformer_b2()
+            masks, labels = self.segformer_b2.predict(image, positive_groups["segformer_b2"])
+            positive_masks.extend(masks)
+            positive_mask_labels.extend(labels)
+        if negative_groups["segformer_b2"]:
+            self._ensure_segformer_b2()
+            masks, labels = self.segformer_b2.predict(image, negative_groups["segformer_b2"])
+            negative_masks.extend(masks)
+            negative_mask_labels.extend(labels)
+        if positive_groups["fashn"]:
+            self._ensure_fashn()
+            masks, labels = self.fashn.predict(image, positive_groups["fashn"])
+            positive_masks.extend(masks)
+            positive_mask_labels.extend(labels)
+        if negative_groups["fashn"]:
+            self._ensure_fashn()
+            masks, labels = self.fashn.predict(image, negative_groups["fashn"])
+            negative_masks.extend(masks)
+            negative_mask_labels.extend(labels)
+        if self.segformer_b2.model is not None:
+            self.unload_segformer_b2()
+        if self.fashn.model is not None:
+            self.unload_fashn()
+        if self.rembg.session is not None:
+            self.unload_rembg()
+        need_sam2 = len(positive_boxes) > 0 or len(negative_boxes) > 0
         if need_sam2:
             self._ensure_sam2()
             self.sam2.set_image(image_np)
-        positive_masks = []
-        if positive_person:
-            positive_masks.append(rembg_foreground_mask.astype(bool))
-        else:
-            for box, label, score in zip(positive_boxes, positive_labels, positive_scores):
-                if whole_image_mode:
-                    mask = np.ones(image_np.shape[:2], dtype=bool)
-                else:
-                    mask, sam_score = self.sam2.predict(box)
-                    mask = self.sam2.clip_mask(mask, box, image_np.shape[:2])
+        for box, label, score in zip(positive_boxes, positive_labels, positive_scores):
+            mask, sam_score = self.sam2.predict(box)
+            mask = self.sam2.clip_mask(mask, box, image_np.shape[:2])
+            if np.any(mask):
                 positive_masks.append(mask.astype(bool))
+                positive_mask_labels.append(label)
         positive_union = np.zeros(image_np.shape[:2], dtype=bool)
         for mask in positive_masks:
             positive_union |= mask
         positive_union_area = np.count_nonzero(positive_union)
-        negative_masks = []
         for box, label, score in zip(negative_boxes, negative_labels, negative_scores):
             if self.sam2.model is None:
                 self._ensure_sam2()
@@ -602,36 +914,29 @@ class SegDinoSAM2:
                 print(f"  Negative mask rejected: {label} positive-overlap={overlap_ratio:.1%} mask-area={mask_area} positive-area={positive_union_area}")
                 continue
             negative_masks.append(mask)
-        if background_requested:
-            background_mask = (~rembg_foreground_mask).astype(bool)
-            negative_masks.append(background_mask)
+            negative_mask_labels.append(label)
+        if self.sam2.model is not None:
+            self.unload_sam2()
+        if not positive_masks:
+            raise RuntimeError("No positive masks were produced.")
         negative_union = np.zeros(image_np.shape[:2], dtype=bool)
         for mask in negative_masks:
             negative_union |= mask
-        if self.sam2.model is not None:
-            self.unload_sam2()
-        if self.rembg.session is not None:
-            self.unload_rembg()
         cleaned_masks = []
         cleaned_labels = []
         occupied = np.zeros(image_np.shape[:2], dtype=bool)
-        for mask, label in zip(positive_masks, positive_labels):
+        for mask, label in zip(positive_masks, positive_mask_labels):
             original_area = np.count_nonzero(mask)
             cleaned = mask & ~negative_union
-            if not whole_image_mode and not positive_person:
-                cleaned &= ~occupied
+            cleaned &= ~occupied
             cleaned_area = np.count_nonzero(cleaned)
             if cleaned_area < MIN_CLEANED_MASK_AREA:
                 continue
-            if not whole_image_mode and not positive_person and original_area > 0 and cleaned_area < int(original_area * MIN_REMAINING_MASK_RATIO):
+            if original_area > 0 and cleaned_area < int(original_area * MIN_REMAINING_MASK_RATIO):
                 continue
             cleaned_masks.append(cleaned.astype(bool))
-            if positive_person:
-                cleaned_labels.append("person")
-            else:
-                cleaned_labels.append(label)
-            if not (whole_image_mode or positive_person):
-                occupied |= cleaned
+            cleaned_labels.append(label)
+            occupied |= cleaned
         if not cleaned_masks:
             raise RuntimeError("No usable masks remained.")
         base_masks = [mask.copy() for mask in cleaned_masks]
@@ -651,17 +956,10 @@ class SegDinoSAM2:
         if self.rembg.session is None:
             self.rembg.load()
 
-    @staticmethod
-    def parse_prompt(text):
-        if text is None:
-            return []
-        text = str(text).strip()
-        if not text:
-            return []
-        text = text.replace("\n", ",")
-        values = [value.strip().lower() for value in text.split(",") if value.strip()]
-        return list(dict.fromkeys(values))
+    def _ensure_segformer_b2(self):
+        if self.segformer_b2.model is None:
+            self.segformer_b2.load()
 
-    @staticmethod
-    def normalize(value):
-        return str(value).strip().lower().replace(" ", "")
+    def _ensure_fashn(self):
+        if self.fashn.model is None:
+            self.fashn.load()

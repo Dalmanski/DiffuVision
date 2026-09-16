@@ -78,7 +78,7 @@ class App(ctk.CTk):
         self.esrgan_input_var = ctk.BooleanVar(value=False)
         self.esrgan_output_var = ctk.BooleanVar(value=False)
         self.full_image_output_var = ctk.BooleanVar(value=True)
-        self.apply_class_gender_var = ctk.BooleanVar(value=True)
+        self.apply_class_gender_var = ctk.BooleanVar(value=False)
         self.stop_requested = threading.Event()
         self.autosave_var = ctk.BooleanVar(value=True)
         self.model_var = ctk.StringVar(value='')
@@ -253,7 +253,7 @@ class App(ctk.CTk):
         self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing and allow_reload else 'disabled')
         self.update_manual_segment_buttons()
         self.update_crop_button_state()
-        self.generate_btn.configure(state='disabled')
+        self.update_generate_state()
 
     def update_crop_button_state(self):
         state = 'normal' if self.original_image is not None and not self.processing and not self.segmentation_loading and not self.manual_segment_loading else 'disabled'

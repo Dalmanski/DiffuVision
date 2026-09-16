@@ -1,9 +1,9 @@
 {
-    "positive_prompt": "wearing black tuxedo, necktie",
+    "positive_prompt": "black tuxedo clothes",
     "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
-    "segmentation_positive_prompt": "person",
-    "segmentation_negative_prompt": "face, hair, eyes, hands",
-    "steps": 44,
+    "segmentation_positive_prompt": "@fashn: [top, pants, belt, skirt, dress]",
+    "segmentation_negative_prompt": "",
+    "steps": 33,
     "cfg": 7.5,
     "strength": 0.92,
     "seed": -1,
