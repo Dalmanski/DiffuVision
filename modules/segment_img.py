@@ -237,11 +237,6 @@ class SegmentImageMixin:
         processed = cropped.copy()
         if self.resize_var.get():
             processed = self.resize_image(processed)
-        if self.esrgan_input_var.get():
-            self.console.log('Enhancing...')
-            processed = enhance(processed, output=False, logger=self.console.log, output_target=OUTPUT_TARGET)
-            if self.resize_var.get():
-                processed = self.resize_image(processed)
         self.sd_input_image = processed.copy()
         self.console.log(f'Input ready {processed.width}x{processed.height}')
         return processed

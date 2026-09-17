@@ -1,7 +1,17 @@
 from PIL import Image
 from modules.segment_img import MAX_SIDE, OUTPUT_TARGET
 
-RECOMMENDED_RATIO_SIZES = {'1:1': (512, 512), '4:3': (768, 576), '3:2': (768, 512), '16:9': (768, 432), '5:4': (640, 512), '4:5': (512, 640), '3:4': (576, 768), '2:3': (512, 768), '9:16': (432, 768)}
+RECOMMENDED_RATIO_SIZES = {
+    '1:1':  (512, 512),
+    '4:3':  (592, 440),
+    '3:2':  (624, 416),
+    '16:9': (680, 384),
+    '5:4':  (568, 456),
+    '4:5':  (456, 568),
+    '3:4':  (440, 592),
+    '2:3':  (416, 624),
+    '9:16': (384, 680)
+}
 
 class ResizeImageMixin:
     def resize_image(self, image):
