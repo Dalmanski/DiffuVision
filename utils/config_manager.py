@@ -126,7 +126,7 @@ class ConfigManager:
             raise ValueError(f'{path.name} must contain a JSON object.')
         return data, path
 
-    def save_json(self, active_config_path, text, autosave_enabled):
+    def _parse_and_save_json(self, active_config_path, text, autosave_enabled):
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError('JSON must be an object.')
@@ -134,10 +134,8 @@ class ConfigManager:
             Path(active_config_path).write_text(text, encoding='utf-8')
         return data
 
+    def save_json(self, active_config_path, text, autosave_enabled):
+        return self._parse_and_save_json(active_config_path, text, autosave_enabled)
+
     def sync_config(self, active_config_path, text, autosave_enabled):
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise ValueError('JSON must be an object.')
-        if autosave_enabled:
-            Path(active_config_path).write_text(text, encoding='utf-8')
-        return data
+        return self._parse_and_save_json(active_config_path, text, autosave_enabled)

@@ -9,5 +9,5 @@
     "seed": -1,
     "guidance_rescale": 0,
     "mask_blur": 2.5,
-    "mask_outline_thickness": 4.5
+    "mask_outline_thickness": 5
 }

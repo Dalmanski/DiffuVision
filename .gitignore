@@ -14,13 +14,14 @@ __pycache__/
 
 # Large model and weights files
 model/*.safetensors
-model/weights/*.pth
-model/weights/*.pt
+model/weights/
 
 # External dependencies / embedded repos
 modules/sam2_repo/
+modules/weights/
 
 # OS/editor noise
+.vscode/
 .DS_Store
 Thumbs.db
 

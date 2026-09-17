@@ -4,7 +4,7 @@
 
 ## Setup
 
-To run **DiffuVision AI**, execute the Python application using **Visual Studio Code** or your preferred terminal.
+To run **DiffuVision**, execute the Python application using **Visual Studio Code** or your preferred terminal.
 
 > **Hardware Recommendation:** An NVIDIA GPU with CUDA support is strongly recommended. CPU-only execution is currently untested and may result in significantly slower performance.
 I used on RTX 2050, 4GB VRAM and 16GB RAM.
@@ -27,20 +27,20 @@ Download one or both of the following inpainting models:
 * **LazyMix v4.0 Inpainting**
 
   * **Link:** [lazymixRealAmateur_v40Inpainting.safetensors](https://huggingface.co/TheImposterImposters/LazyMix-v4.0-inpainting/blob/main/lazymixRealAmateur_v40Inpainting.safetensors)
-  * **Best for:** Photorealistic and real-life images
+  * **Best for:** Photorealistic and real-life images (It works on anime but idk)
 
 ### 3. Place the Models
 
 After downloading the models, place them in:
 
 ```text
-DiffuVision AI/model/
+DiffuVision/model/
 ```
 
 The folder structure should look similar to this:
 
 ```text
-DiffuVision AI/
+DiffuVision/
 ├── model/
 │   └── DreamShaper_8_INPAINTING.inpainting.safetensors
 ├── app.py
@@ -72,7 +72,7 @@ Download **SAM2**, including `sam2.1_hiera_tiny.pt`.
 Rename the downloaded `sam2` folder to `sam2_repo` and place it within the project directory as shown below:
 
 ```text
-DiffuVision AI/
+DiffuVision/
 ├── modules/
 │   ├── sam2_repo/
 │   │   ├── sam2.1_hiera_tiny.pt

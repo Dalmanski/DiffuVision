@@ -1,20 +1,21 @@
-import os, sys, json, time, threading, gc, math
+import sys, json, time, threading, gc
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
-from PIL import Image, ImageTk, ImageFilter, ImageOps
-import numpy as np, torch, cv2
+from PIL import Image, ImageTk, ImageOps
+import numpy as np, torch
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
-from modules.segdinosam2 import SegDinoSAM2
-from modules.selectsegsam2 import SAM2Segmenter
 from modules.imgclass import REAL, ANIME, THREE_D, CARTOON, classify_image
-from components.json_textbox import JSONTextBox
-from components.console_textbox import ConsoleTextBox, create_redirects
+from widgets.json_textbox import JSONTextBox
+from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
 from modules import gender as gender_module
-from model.upscale_img import enhance
+from modules.upscale_img import enhance
+from modules.segment_img import SegmentImageMixin, MAX_SIDE, OUTPUT_TARGET
+from modules.resize_img import ResizeImageMixin, RECOMMENDED_RATIO_SIZES
+from modules.crop_img import CropImageMixin
 
 BASE_DIR = Path(__file__).resolve().parent
 ctk.set_appearance_mode('system')
@@ -22,19 +23,16 @@ ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'data/diffusion_config/default.json'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
-MAX_SIDE = 768
-RECOMMENDED_RATIO_SIZES = {'1:1': (512, 512), '4:3': (768, 576), '3:2': (768, 512), '16:9': (768, 432), '5:4': (640, 512), '4:5': (512, 640), '3:4': (576, 768), '2:3': (512, 768), '9:16': (432, 768)}
 RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
-OUTPUT_TARGET = 1080
 IMAGE_CLASSES = [REAL, ANIME, THREE_D, CARTOON]
 
 class GenerationStopped(Exception):
     pass
 
-class App(ctk.CTk):
+class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
+
     def __init__(self):
         super().__init__()
         self.title('DiffuVision - Inpainting with Stable Diffusion')
@@ -55,6 +53,7 @@ class App(ctk.CTk):
         self.output_image = None
         self.input_path = None
         self.input_image_name = None
+        self.last_save_dir = None
         self.generation_counter = 0
         self.mask_image = None
         self.mask_source = None
@@ -89,7 +88,7 @@ class App(ctk.CTk):
         self.active_config_path = DEFAULT_JSON
         self.config = {}
         self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
-        self.env_path = self.config_manager.env_path
+        self.recommended_ratio_sizes = RECOMMENDED_RATIO_SIZES
         self.output_showing_original = False
         self.load_env_settings()
         self.model_var.set(DEFAULT_MODEL)
@@ -99,7 +98,6 @@ class App(ctk.CTk):
         sys.stdout = self.stdout_redirect
         sys.stderr = self.stderr_redirect
         self.after(100, self.maximize)
-        self.refresh_config_files()
         self.load_startup_config()
         if self.model_var.get():
             threading.Thread(target=self.load_models, args=(self.model_var.get(),), daemon=True).start()
@@ -141,8 +139,6 @@ class App(ctk.CTk):
         self.ratio_menu.place(relx=1.0, x=-8, y=8, anchor='ne')
         self.reset_crop_btn = ctk.CTkButton(self.input_image_container, text='🖾', command=self.reset_crop, width=34, height=34, corner_radius=6, fg_color='#21262D', hover_color='#30363D', font=('Segoe UI Symbol', 17))
         self.reset_crop_btn.place(relx=1.0, x=-8, y=48, anchor='ne')
-        self.auto_fit_crop_btn = ctk.CTkButton(self.input_image_container, text='⿻', command=self.auto_fit_crop_to_person, width=34, height=34, corner_radius=6, fg_color='#21262D', hover_color='#30363D', font=('Segoe UI Symbol', 17))
-        self.auto_fit_crop_btn.place(relx=1.0, x=-8, y=88, anchor='ne')
         self.upload_btn = ctk.CTkButton(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
         self.upload_btn.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.preprocessing_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
@@ -260,214 +256,8 @@ class App(ctk.CTk):
         if hasattr(self, 'manual_segment_mode') and self.manual_segment_mode:
             state = 'disabled'
         self.reset_crop_btn.configure(state=state)
-        self.auto_fit_crop_btn.configure(state=state)
         self.ratio_menu.configure(state=state)
         self.update_manual_segment_buttons()
-
-    def update_manual_segment_buttons(self):
-        if not hasattr(self, 'manual_segment_btn'):
-            return
-        base_state = 'normal' if self.original_image is not None and not self.processing and not self.model_loading and not self.segmentation_loading and not self.classification_loading and not self.manual_segment_loading else 'disabled'
-        self.manual_segment_btn.configure(state=base_state)
-        self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
-        if self.manual_segment_mode:
-            self.manual_segment_btn.configure(fg_color='#1f8f3a', hover_color='#176b2c')
-        else:
-            self.manual_segment_btn.configure(fg_color='#21262D', hover_color='#30363D')
-
-    def toggle_manual_segment_mode(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
-            return
-        if self.original_image is None:
-            return
-        if self.manual_segment_mode:
-            self.disable_manual_segment_mode()
-            self.console.log('SAM2 point selection disabled')
-            return
-        try:
-            self.sync_config()
-        except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
-            return
-        self.manual_segment_mode = True
-        self.manual_segment_loading = True
-        self.manual_segment_btn.configure(state='disabled')
-        self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
-        self.update_crop_button_state()
-        self.console.log('Loading SAM2 point selection...')
-        threading.Thread(target=self.load_manual_segmenter_worker, daemon=True).start()
-
-    def load_manual_segmenter_worker(self):
-        try:
-            image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
-            self.manual_segmenter = SAM2Segmenter()
-            self.manual_segmenter.load_image(image)
-            self.manual_selection_image = image
-            self.console.log('SAM2 point selection ready • click the image to append segments')
-        except Exception as e:
-            self.manual_segment_mode = False
-            self.console.log(f'SAM2 point selection error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Error: {err}'))
-        finally:
-            self.manual_segment_loading = False
-            self.after(0, self.update_crop_button_state)
-            self.after(0, self.show_input)
-            self.after(0, self.update_generate_state)
-
-    def disable_manual_segment_mode(self):
-        self.manual_segment_mode = False
-        self.manual_segment_loading = False
-        segmenter = self.manual_segmenter
-        self.manual_segmenter = None
-        self.manual_selection_image = None
-        if segmenter is not None:
-            segmenter.close()
-        self.cleanup_gpu()
-        self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing and not self.segmentation_loading else 'disabled')
-        self.update_crop_button_state()
-        self.show_input()
-
-    def select_manual_segment(self, event):
-        if not self.manual_segment_mode or self.manual_segment_loading or self.manual_segmenter is None:
-            return
-        if self.input_display_info is None or self.manual_selection_image is None:
-            return
-        x, y, width, height = self.input_display_info
-        if event.x < x or event.x >= x + width or event.y < y or event.y >= y + height:
-            return
-        image_width, image_height = self.manual_selection_image.size
-        image_x = max(0, min(image_width - 1, int((event.x - x) / width * image_width)))
-        image_y = max(0, min(image_height - 1, int((event.y - y) / height * image_height)))
-        self.manual_segment_loading = True
-        self.update_manual_segment_buttons()
-        threading.Thread(target=self.manual_segment_worker, args=(image_x, image_y), daemon=True).start()
-
-    def manual_segment_worker(self, image_x, image_y):
-        try:
-            thickness = float(self.config.get('mask_outline_thickness', 0.0))
-            blur = float(self.config.get('mask_blur', 0.0))
-            self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
-            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=thickness, blur=blur)
-            self.mask_image = mask
-            self.mask_source = 'manual'
-            self.output_image = None
-            self.output_showing_original = False
-            self.after(0, self.show_input)
-            self.after(0, self.show_output)
-            self.console.log('Segment appended')
-        except Exception as e:
-            self.console.log(f'SAM2 selection error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Selection Error: {err}'))
-        finally:
-            self.manual_segment_loading = False
-            self.after(0, self.update_crop_button_state)
-            self.after(0, lambda: self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
-            self.after(0, self.update_generate_state)
-
-    def clear_manual_segments(self):
-        if self.processing or self.manual_segment_loading:
-            return
-        if self.manual_segmenter is not None:
-            self.manual_segmenter.clear_all_segments()
-        self.reset_preview_state()
-        self.generate_btn.configure(state='disabled')
-        self.console.log('All manually appended segments removed')
-        self.show_input()
-        self.show_output()
-        self.update_generate_state()
-
-    def auto_fit_crop_to_person(self):
-        if self.original_image is None:
-            self.console.log('No image')
-            return
-        if self.processing:
-            self.console.log('Generation running')
-            return
-        if self.model_loading:
-            self.console.log('Model loading')
-            return
-        if self.segmentation_loading:
-            self.console.log('Segmentation running')
-            return
-        if self.classification_loading:
-            self.console.log('Classification running')
-            return
-        self.segmentation_loading = True
-        self.update_crop_button_state()
-        self.reload_mask_btn.configure(state='disabled')
-        self.generate_btn.configure(state='disabled')
-        self.console.log('Finding person...')
-        threading.Thread(target=self.auto_fit_crop_worker, daemon=True).start()
-
-    def auto_fit_crop_worker(self):
-        try:
-            image = self.original_image.copy()
-            self.ensure_segmentation()
-            self.load_segmentation()
-            result = self.segmentation.segment(image, 'person', '', thickness=0)
-            masks = getattr(result, 'masks', None)
-            if masks is None and isinstance(result, dict):
-                masks = result.get('masks')
-            best_mask = None
-            if masks is not None:
-                for mask in masks:
-                    array = np.asarray(mask).astype(bool)
-                    if array.ndim > 2:
-                        array = np.squeeze(array)
-                    if array.ndim != 2 or not np.any(array):
-                        continue
-                    if best_mask is None or np.count_nonzero(array) > np.count_nonzero(best_mask):
-                        best_mask = array
-            if best_mask is None:
-                mask_image = getattr(result, 'mask_image', None)
-                if mask_image is None and isinstance(result, dict):
-                    mask_image = result.get('mask_image')
-                if mask_image is not None:
-                    array = np.asarray(mask_image)
-                    if array.ndim > 2:
-                        array = np.squeeze(array)
-                    if array.ndim == 2 and np.any(array):
-                        best_mask = array > 0
-            if best_mask is None or best_mask.ndim != 2 or not np.any(best_mask):
-                raise RuntimeError('No person was detected for automatic crop fitting.')
-            if best_mask.shape != (image.height, image.width):
-                resized = Image.fromarray((best_mask.astype(np.uint8) * 255), 'L').resize(image.size, Image.Resampling.NEAREST)
-                best_mask = np.asarray(resized, dtype=np.uint8) > 0
-            ys, xs = np.where(best_mask)
-            if xs.size == 0 or ys.size == 0:
-                raise RuntimeError('No person was detected for automatic crop fitting.')
-            left = xs.min() / image.width
-            top = ys.min() / image.height
-            right = (xs.max() + 1) / image.width
-            bottom = (ys.max() + 1) / image.height
-            margin_x = max(0.02, min(0.12, (right - left) * 0.08))
-            margin_y = max(0.02, min(0.12, (bottom - top) * 0.08))
-            proposed_crop_box = (left - margin_x, top - margin_y, right + margin_x, bottom + margin_y)
-            ratio = self.get_crop_ratio()
-            crop_box = self.clamp_fixed_crop_box(proposed_crop_box, ratio)
-            self.after(0, lambda box=crop_box: self.apply_auto_person_crop(box))
-        except Exception as e:
-            self.console.log(f'Automatic crop error: {e}')
-        finally:
-            self.unload_segmentation()
-            self.cleanup_gpu()
-            self.segmentation_loading = False
-            self.after(0, self.update_crop_button_state)
-            self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing else 'disabled'))
-            self.after(0, self.update_generate_state)
-            self.after(0, self.update_crop_button_state)
-
-    def apply_auto_person_crop(self, crop_box):
-        if self.original_image is None:
-            return
-        ratio = self.get_crop_ratio()
-        self.crop_box = self.clamp_fixed_crop_box(crop_box, ratio)
-        self.reset_preview_state()
-        self.refresh_crop_related_ui()
-        self.console.log('Person crop ready')
-        self.console.log('Crop changed')
-        self.show_input()
-        self.show_output()
 
     def load_env_settings(self):
         values = self.config_manager.read_env_file()
@@ -614,9 +404,6 @@ class App(ctk.CTk):
         self.pipeline_dtype = None
         self.cleanup_gpu()
 
-    def offload_diffusion_model(self):
-        self.cleanup_gpu()
-
     def restore_diffusion_model(self):
         if self.pipe is None:
             return
@@ -695,11 +482,7 @@ class App(ctk.CTk):
         model = getattr(gender_module, 'model', None)
         if model is None:
             raise RuntimeError('gender.py model is not available.')
-
-        target_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        gender_module.device = target_device
         try:
-            model.to(target_device)
             return gender_module.predict_gender(file_path)
         finally:
             self.cleanup_gpu()
@@ -778,234 +561,12 @@ class App(ctk.CTk):
             self.manual_segment_btn.configure(state='normal')
             self.clear_segment_btn.configure(state='normal')
             self.reset_crop_btn.configure(state='normal')
-            self.auto_fit_crop_btn.configure(state='normal')
             self.show_input()
             self.show_output()
             self.console.log(f'Loaded {self.input_image_name}')
             threading.Thread(target=self.classify_after_upload, args=(path,), daemon=True).start()
         except Exception as e:
             self.console.log(f'Image Error: {e}')
-
-    def set_recommended_ratio(self, image):
-        width, height = image.size
-        aspect = width / height
-        choice = min(RECOMMENDED_RATIO_SIZES, key=lambda key: abs(math.log(aspect / (RECOMMENDED_RATIO_SIZES[key][0] / RECOMMENDED_RATIO_SIZES[key][1]))))
-        self.ratio_var.set(choice)
-        self.crop_box = self.default_crop_box_for_ratio(choice)
-
-    def default_crop_box_for_ratio(self, choice):
-        if self.original_image is None:
-            return 0.0, 0.0, 1.0, 1.0
-        ratio = float(choice.split(':')[0]) / float(choice.split(':')[1])
-        image_width, image_height = self.original_image.size
-        image_aspect = image_width / image_height
-        if image_aspect > ratio:
-            crop_height = 1.0
-            crop_width = ratio / image_aspect
-        else:
-            crop_width = 1.0
-            crop_height = image_aspect / ratio
-        left = (1.0 - crop_width) / 2.0
-        top = (1.0 - crop_height) / 2.0
-        return left, top, left + crop_width, top + crop_height
-
-    def resize_image(self, image):
-        image = image.convert('RGB')
-        w, h = image.size
-        ratio = self.ratio_var.get().strip().upper()
-        if ratio in RECOMMENDED_RATIO_SIZES:
-            nw, nh = RECOMMENDED_RATIO_SIZES[ratio]
-        else:
-            longest = max(w, h)
-            if longest <= MAX_SIDE:
-                nw = max(8, int(round(w / 8) * 8))
-                nh = max(8, int(round(h / 8) * 8))
-            else:
-                scale = MAX_SIDE / longest
-                nw = max(8, int(round(w * scale / 8) * 8))
-                nh = max(8, int(round(h * scale / 8) * 8))
-        if (nw, nh) == (w, h):
-            return image
-        self.console.log(f'Resize → {nw}x{nh}')
-        return image.resize((nw, nh), Image.Resampling.LANCZOS)
-
-    def resize_output(self, image):
-        w, h = image.size
-        longest = max(w, h)
-        if longest <= OUTPUT_TARGET:
-            return image
-        scale = OUTPUT_TARGET / longest
-        nw = max(8, int(round(w * scale)))
-        nh = max(8, int(round(h * scale)))
-        return image.resize((nw, nh), Image.Resampling.LANCZOS)
-
-    def apply_mask_adjustments(self, mask, thickness):
-        array = np.asarray(mask, dtype=np.uint8)
-        binary = (array >= 128).astype(np.uint8)
-        thickness = float(thickness)
-        if thickness < 0:
-            raise ValueError('mask_outline_thickness cannot be negative.')
-        if thickness > 0:
-            radius = int(round(thickness))
-            if radius > 0:
-                kernel_size = radius * 2 + 1
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-                binary = cv2.dilate(binary, kernel, iterations=1)
-        return Image.fromarray((binary * 255).astype(np.uint8), 'L')
-
-    def ensure_segmentation(self):
-        if not hasattr(self, 'segmentation') or self.segmentation is None:
-            self.segmentation = SegDinoSAM2()
-
-    def load_segmentation(self):
-        self.ensure_segmentation()
-        self.segmentation.load_dino()
-        self.segmentation.load_sam2()
-
-    def unload_segmentation(self):
-        if not hasattr(self, 'segmentation') or self.segmentation is None:
-            return
-        try:
-            self.segmentation.unload_dino()
-        except Exception:
-            pass
-        try:
-            self.segmentation.unload_sam2()
-        except Exception:
-            pass
-        gc.collect()
-        if DEVICE == 'cuda':
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                torch.cuda.ipc_collect()
-            except Exception:
-                pass
-
-    def regenerate_mask(self, image):
-        if image is None or self.processing or self.model_loading or self.classification_loading:
-            return
-        self.segmentation_loading = True
-        self.reload_mask_btn.configure(state='disabled')
-        self.generate_btn.configure(state='disabled')
-        self.after(0, self.show_output)
-        try:
-            self.console.log('Building mask...')
-            mask = self.make_mask(image)
-            self.mask_image = mask.copy()
-            self.mask_source = 'auto'
-            self.after(0, self.show_input)
-            self.after(0, self.show_output)
-            self.console.log('Mask ready')
-        except Exception as e:
-            self.mask_image = None
-            self.console.log(f'Mask error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'Mask Error: {err}'))
-        finally:
-            self.segmentation_loading = False
-            self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing else 'disabled'))
-            self.after(0, self.update_crop_button_state)
-            self.after(0, self.update_generate_state)
-
-    def reload_mask(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading or self.manual_segment_loading:
-            return
-        if self.original_image is None:
-            return
-        if self.manual_segment_mode:
-            self.disable_manual_segment_mode()
-        try:
-            self.sync_config()
-        except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
-            return
-        self.mask_image = None
-        self.mask_source = None
-        self.sd_input_image = None
-        self.output_image = None
-        self.output_showing_original = False
-        self.generate_btn.configure(state='disabled')
-        self.reload_mask_btn.configure(state='disabled')
-        self.update_manual_segment_buttons()
-        self.show_input()
-        self.show_output()
-        self.console.log('Reloading mask...')
-        threading.Thread(target=self.reload_mask_worker, daemon=True).start()
-
-    def reload_mask_worker(self):
-        try:
-            processed = self.preprocess_uploaded_image(self.original_image)
-            self.after(0, self.show_input)
-            self.regenerate_mask(processed.copy())
-        except Exception as e:
-            self.console.log(f'RELOAD MASK error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'Mask Reload Error: {err}'))
-            self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
-
-    def preprocess_uploaded_image(self, image):
-        base = image.convert('RGB').copy()
-        self.input_image = base.copy()
-        cropped = self.get_cropped_image(base)
-        processed = cropped.copy()
-        if self.resize_var.get():
-            processed = self.resize_image(processed)
-        if self.esrgan_input_var.get():
-            self.console.log('Enhancing...')
-            processed = enhance(processed, output=False, logger=self.console.log, output_target=OUTPUT_TARGET)
-            if self.resize_var.get():
-                processed = self.resize_image(processed)
-        self.sd_input_image = processed.copy()
-        self.console.log(f'Input ready {processed.width}x{processed.height}')
-        return processed
-
-    def make_mask(self, image):
-        segmentation_positive_prompt = str(self.config.get('segmentation_positive_prompt', ''))
-        segmentation_negative_prompt = str(self.config.get('segmentation_negative_prompt', ''))
-        thickness = float(self.config.get('mask_outline_thickness', 0.0))
-        blur = float(self.config.get('mask_blur', 0.0))
-        if thickness < 0:
-            raise ValueError('mask_outline_thickness cannot be negative.')
-        if blur < 0:
-            raise ValueError('mask_blur cannot be negative.')
-        self.load_segmentation()
-        try:
-            self.console.log('Segmenting...')
-            result = self.segmentation.segment(image, segmentation_positive_prompt, segmentation_negative_prompt, thickness=0)
-            masks = getattr(result, 'masks', None)
-            if masks is None and isinstance(result, dict):
-                masks = result.get('masks')
-            if masks is None:
-                mask_image = getattr(result, 'mask_image', None)
-                if mask_image is None and isinstance(result, dict):
-                    mask_image = result.get('mask_image')
-                if mask_image is None:
-                    raise RuntimeError('segdinosam2 returned no masks.')
-                raw_mask = Image.fromarray(np.asarray(mask_image, dtype=np.uint8), 'L')
-                count = 1
-            else:
-                masks = [np.asarray(mask, dtype=bool) for mask in masks if np.asarray(mask).any()]
-                if not masks:
-                    raise RuntimeError('segdinosam2 returned no usable masks.')
-                combined = np.zeros(image.size[::-1], dtype=bool)
-                for mask in masks:
-                    if mask.shape != combined.shape:
-                        resized = Image.fromarray((mask.astype(np.uint8) * 255), 'L').resize(image.size, Image.Resampling.NEAREST)
-                        mask = np.asarray(resized, dtype=np.uint8) > 0
-                    combined |= mask
-                raw_mask = Image.fromarray((combined.astype(np.uint8) * 255).astype(np.uint8), 'L')
-                count = len(masks)
-            if raw_mask.size != image.size:
-                raw_mask = raw_mask.resize(image.size, Image.Resampling.NEAREST)
-            mask = self.apply_mask_adjustments(raw_mask, thickness)
-            if blur > 0:
-                mask = mask.filter(ImageFilter.GaussianBlur(radius=blur))
-            self.console.log(f'Mask ready • {count} mask(s)')
-            return mask.copy()
-        finally:
-            self.unload_segmentation()
-            self.cleanup_gpu()
 
     def append_gender_prompts(self, positive_prompt, negative_prompt, selected_gender):
         gender_positive = {'male': 'male', 'female': 'female', 'neutral': ''}
@@ -1032,14 +593,6 @@ class App(ctk.CTk):
         if negative_append:
             negative_prompt = f'{negative_append}, {negative_prompt}' if negative_prompt else negative_append
         return positive_prompt, negative_prompt
-
-    def has_valid_mask(self, mask):
-        if mask is None:
-            return False
-        try:
-            return np.asarray(mask, dtype=np.uint8).max() >= 10
-        except Exception:
-            return False
 
     def generate(self):
         if self.processing:
@@ -1212,7 +765,6 @@ class App(ctk.CTk):
             self.stop_requested.clear()
             self.segmentation_loading = False
             self.cleanup_gpu()
-            self.offload_diffusion_model()
             self.after(0, self.update_generate_state)
             self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.segmentation_loading else 'disabled'))
             self.after(0, self.update_crop_button_state)
@@ -1222,40 +774,6 @@ class App(ctk.CTk):
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
             self.after(0, lambda: self.ratio_menu.configure(state='normal'))
 
-    def overlay_generated_crop(self, original_image, generated_crop, crop_box):
-        original = original_image.convert('RGB').copy()
-        width, height = original.size
-        left, top, right, bottom = crop_box
-        x1 = max(0, min(width - 1, int(round(left * width))))
-        y1 = max(0, min(height - 1, int(round(top * height))))
-        x2 = max(x1 + 1, min(width, int(round(right * width))))
-        y2 = max(y1 + 1, min(height, int(round(bottom * height))))
-        target_size = (x2 - x1, y2 - y1)
-        generated_crop = generated_crop.resize(target_size, Image.Resampling.LANCZOS)
-        original.paste(generated_crop, (x1, y1))
-        return original
-
-    def generation_size(self, width, height):
-        width = max(8, int(width))
-        height = max(8, int(height))
-        ratio = self.ratio_var.get().strip().upper()
-        if self.resize_var.get() and ratio in RECOMMENDED_RATIO_SIZES:
-            w, h = RECOMMENDED_RATIO_SIZES[ratio]
-        elif self.resize_var.get():
-            longest = max(width, height)
-            if longest <= MAX_SIDE:
-                w = max(8, int(round(width / 8) * 8))
-                h = max(8, int(round(height / 8) * 8))
-            else:
-                scale = MAX_SIDE / longest
-                w = max(8, int(round(width * scale / 8) * 8))
-                h = max(8, int(round(height * scale / 8) * 8))
-        else:
-            w = max(64, (width // 8) * 8)
-            h = max(64, (height // 8) * 8)
-        self.console.log(f'Size {w}x{h} • {ratio}')
-        return w, h
-
     def time_text(self, seconds):
         seconds = max(0, int(seconds))
         minutes, seconds = divmod(seconds, 60)
@@ -1263,262 +781,6 @@ class App(ctk.CTk):
         if hours:
             return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
         return f'{minutes:02d}:{seconds:02d}'
-
-    def get_effective_crop_box(self):
-        if self.crop_box is None:
-            return 0.0, 0.0, 1.0, 1.0
-        return self.crop_box
-
-    def get_cropped_image(self, image):
-        image = image.convert('RGB')
-        if self.crop_box is None:
-            return image.copy()
-        width, height = image.size
-        left, top, right, bottom = self.crop_box
-        x1 = max(0, min(width - 1, int(round(left * width))))
-        y1 = max(0, min(height - 1, int(round(top * height))))
-        x2 = max(x1 + 1, min(width, int(round(right * width))))
-        y2 = max(y1 + 1, min(height, int(round(bottom * height))))
-        return image.crop((x1, y1, x2, y2))
-
-    def clamp_crop_box(self, box):
-        left, top, right, bottom = [float(value) for value in box]
-        minimum = 0.02
-        left = max(0.0, min(1.0 - minimum, left))
-        top = max(0.0, min(1.0 - minimum, top))
-        right = max(minimum, min(1.0, right))
-        bottom = max(minimum, min(1.0, bottom))
-        if right - left < minimum:
-            if left + minimum <= 1.0:
-                right = left + minimum
-            else:
-                left = max(0.0, right - minimum)
-        if bottom - top < minimum:
-            if top + minimum <= 1.0:
-                bottom = top + minimum
-            else:
-                top = max(0.0, bottom - minimum)
-        return left, top, right, bottom
-
-    def get_crop_ratio(self):
-        value = self.ratio_var.get().strip().upper()
-        left, right = value.split(':', 1)
-        return float(left) / float(right)
-
-    def clamp_fixed_crop_box(self, box, ratio):
-        if self.original_image is None or ratio is None:
-            return self.clamp_crop_box(box)
-        left, top, right, bottom = [float(value) for value in box]
-        normalized_ratio = ratio * self.original_image.height / self.original_image.width
-        width = max(0.02, right - left)
-        height = max(0.02, bottom - top)
-        if width / height > normalized_ratio:
-            height = width / normalized_ratio
-        else:
-            width = height * normalized_ratio
-        width = min(width, 1.0, normalized_ratio)
-        height = min(height, 1.0, 1.0 / normalized_ratio)
-        if width < 0.02:
-            width = 0.02
-            height = width / normalized_ratio
-        if height < 0.02:
-            height = 0.02
-            width = height * normalized_ratio
-        if width > 1.0:
-            width = 1.0
-            height = width / normalized_ratio
-        if height > 1.0:
-            height = 1.0
-            width = height * normalized_ratio
-        cx = (left + right) / 2.0
-        cy = (top + bottom) / 2.0
-        left = cx - width / 2.0
-        right = cx + width / 2.0
-        top = cy - height / 2.0
-        bottom = cy + height / 2.0
-        if left < 0.0:
-            right -= left
-            left = 0.0
-        if right > 1.0:
-            left -= right - 1.0
-            right = 1.0
-        if top < 0.0:
-            bottom -= top
-            top = 0.0
-        if bottom > 1.0:
-            top -= bottom - 1.0
-            bottom = 1.0
-        return self.clamp_crop_box((left, top, right, bottom))
-
-    def mark_crop_changed(self, message):
-        self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log(message)
-        self.show_input()
-        self.show_output()
-
-    def ratio_changed(self, choice):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
-            return
-        if self.original_image is None:
-            return
-        ratio = self.get_crop_ratio()
-        self.crop_box = self.clamp_fixed_crop_box(self.get_effective_crop_box(), ratio)
-        self.mark_crop_changed(f'Ratio {choice}')
-
-    def crop_handle_size(self):
-        return 11
-
-    def crop_handle_points(self, display):
-        x, y, width, height = display
-        left, top, right, bottom = self.get_effective_crop_box()
-        x1 = x + left * width
-        y1 = y + top * height
-        x2 = x + right * width
-        y2 = y + bottom * height
-        xm = (x1 + x2) / 2
-        ym = (y1 + y2) / 2
-        return {'nw': (x1, y1), 'n': (xm, y1), 'ne': (x2, y1), 'w': (x1, ym), 'e': (x2, ym), 'sw': (x1, y2), 's': (xm, y2), 'se': (x2, y2)}
-
-    def get_crop_handle(self, event):
-        if self.input_display_info is None:
-            return None
-        size = self.crop_handle_size() + 5
-        for handle, point in self.crop_handle_points(self.input_display_info).items():
-            if abs(event.x - point[0]) <= size and abs(event.y - point[1]) <= size:
-                return handle
-        return None
-
-    def start_crop(self, event):
-        if self.manual_segment_mode:
-            self.select_manual_segment(event)
-            return
-        if self.original_image is None or self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
-            return
-        if self.input_display_info is None:
-            return
-        handle = self.get_crop_handle(event)
-        if handle is None:
-            return
-        self.active_crop_handle = handle
-        self.crop_box_start = self.get_effective_crop_box()
-        self.cropping = True
-
-    def update_crop_selection(self, event):
-        if self.manual_segment_mode:
-            return
-        if not self.cropping or self.input_display_info is None or self.crop_box_start is None:
-            return
-        x, y, width, height = self.input_display_info
-        px = max(x, min(x + width, event.x))
-        py = max(y, min(y + height, event.y))
-        nx = (px - x) / width
-        ny = (py - y) / height
-        left, top, right, bottom = self.crop_box_start
-        ratio = self.get_crop_ratio()
-        normalized_ratio = ratio * self.original_image.height / self.original_image.width
-        if self.active_crop_handle in ('nw', 'ne', 'sw', 'se'):
-            anchor_x = right if self.active_crop_handle in ('nw', 'sw') else left
-            anchor_y = bottom if self.active_crop_handle in ('nw', 'ne') else top
-            dx = abs(nx - anchor_x)
-            dy = abs(ny - anchor_y)
-            crop_width = max(0.02, dx, dy * normalized_ratio)
-            crop_height = crop_width / normalized_ratio
-            if self.active_crop_handle == 'nw':
-                box = (anchor_x - crop_width, anchor_y - crop_height, anchor_x, anchor_y)
-            elif self.active_crop_handle == 'ne':
-                box = (anchor_x, anchor_y - crop_height, anchor_x + crop_width, anchor_y)
-            elif self.active_crop_handle == 'sw':
-                box = (anchor_x - crop_width, anchor_y, anchor_x, anchor_y + crop_height)
-            else:
-                box = (anchor_x, anchor_y, anchor_x + crop_width, anchor_y + crop_height)
-        elif self.active_crop_handle in ('e', 'w'):
-            if self.active_crop_handle == 'e':
-                new_width = max(0.02, nx - left)
-                center_y = (top + bottom) / 2.0
-                new_height = new_width / normalized_ratio
-                box = (left, center_y - new_height / 2.0, nx, center_y + new_height / 2.0)
-            else:
-                new_width = max(0.02, right - nx)
-                center_y = (top + bottom) / 2.0
-                new_height = new_width / normalized_ratio
-                box = (nx, center_y - new_height / 2.0, right, center_y + new_height / 2.0)
-        elif self.active_crop_handle == 's':
-            new_height = max(0.02, ny - top)
-            center_x = (left + right) / 2.0
-            new_width = new_height * normalized_ratio
-            box = (center_x - new_width / 2.0, top, center_x + new_width / 2.0, ny)
-        else:
-            new_height = max(0.02, bottom - ny)
-            center_x = (left + right) / 2.0
-            new_width = new_height * normalized_ratio
-            box = (center_x - new_width / 2.0, ny, center_x + new_width / 2.0, bottom)
-        self.crop_box = self.clamp_fixed_crop_box(box, ratio)
-        self.draw_crop_overlay()
-
-    def finish_crop(self, event):
-        if self.manual_segment_mode:
-            return
-        if not self.cropping:
-            return
-        self.cropping = False
-        self.active_crop_handle = None
-        self.crop_box_start = None
-        box = self.clamp_fixed_crop_box(self.crop_box if self.crop_box is not None else (0.0, 0.0, 1.0, 1.0), self.get_crop_ratio())
-        if box[0] <= 0.005 and box[1] <= 0.005 and (box[2] >= 0.995 and box[3] >= 0.995):
-            self.crop_box = None
-        else:
-            self.crop_box = box
-        self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log('Crop changed')
-        self.show_input()
-        self.show_output()
-
-    def reset_crop(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
-            return
-        if self.original_image is None:
-            return
-        if self.crop_box is None:
-            return
-        self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
-        self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log('Crop reset')
-        self.show_input()
-        self.show_output()
-
-    def compose_mask_for_display(self, image, fitted_size):
-        if self.mask_image is None:
-            return None
-        display_mask = Image.new('L', image.size, 0)
-        crop_box = self.get_effective_crop_box()
-        width, height = image.size
-        x1 = max(0, min(width - 1, int(round(crop_box[0] * width))))
-        y1 = max(0, min(height - 1, int(round(crop_box[1] * height))))
-        x2 = max(x1 + 1, min(width, int(round(crop_box[2] * width))))
-        y2 = max(y1 + 1, min(height, int(round(crop_box[3] * height))))
-        crop_size = (x2 - x1, y2 - y1)
-        mask = self.mask_image.resize(crop_size, Image.Resampling.NEAREST)
-        display_mask.paste(mask, (x1, y1))
-        return display_mask.resize(fitted_size, Image.Resampling.NEAREST)
-
-    def draw_crop_overlay(self):
-        if self.input_display_info is None:
-            return
-        self.input_canvas.delete('crop_overlay')
-        x, y, width, height = self.input_display_info
-        left, top, right, bottom = self.get_effective_crop_box()
-        x1 = x + left * width
-        y1 = y + top * height
-        x2 = x + right * width
-        y2 = y + bottom * height
-        self.input_canvas.create_rectangle(x1, y1, x2, y2, outline='#000000', width=3, dash=(8, 5), tags='crop_overlay')
-        handle_size = self.crop_handle_size()
-        for point in self.crop_handle_points(self.input_display_info).values():
-            hx, hy = point
-            self.input_canvas.create_rectangle(hx - handle_size, hy - handle_size, hx + handle_size, hy + handle_size, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')
 
     def show_input(self):
         if not hasattr(self, 'input_canvas'):
@@ -1579,12 +841,23 @@ class App(ctk.CTk):
     def save(self):
         if self.output_image is None:
             return
-        path = filedialog.asksaveasfilename(title='Save generated image', defaultextension='.png', filetypes=[('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')])
+        original_name = Path(self.input_image_name or 'image').stem
+        input_dir = Path(self.input_path).parent if self.input_path else Path.cwd()
+        initial_dir = self.last_save_dir if self.last_save_dir and self.last_save_dir.exists() else input_dir
+        base_name = f'{original_name}_DiffuVision'
+        initial_path = initial_dir / f'{base_name}.png'
+        counter = 1
+        while initial_path.exists():
+            initial_path = initial_dir / f'{base_name} ({counter}).png'
+            counter += 1
+        path = filedialog.asksaveasfilename(title='Save generated image', initialdir=str(initial_dir), initialfile=initial_path.name, confirmoverwrite=True, defaultextension='.png', filetypes=[('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')])
         if not path:
             return
+        path = Path(path)
+        self.last_save_dir = path.parent
         try:
             output = self.output_image
-            suffix = Path(path).suffix.lower()
+            suffix = path.suffix.lower()
             if suffix in ('.jpg', '.jpeg'):
                 output = output.convert('RGB')
             output.save(path)
