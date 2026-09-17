@@ -677,7 +677,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             cfg = float(config.get('cfg'))
             strength = float(config.get('strength'))
             seed = int(config.get('seed', -1))
-            guidance_rescale = float(config.get('guidance_rescale'))
+            cfg_rescale = float(config.get('cfg_rescale'))
             positive_prompt = str(config.get('positive_prompt', ''))
             negative_prompt = str(config.get('negative_prompt', ''))
             if apply_class_gender:
@@ -729,7 +729,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             self.console.log(f'Generating {w}x{h}...')
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
-                result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=guidance_rescale)
+                result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=cfg_rescale)
             self.check_stop_requested()
             generated = result.images[0].convert('RGB')
             del result

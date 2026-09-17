@@ -1,13 +1,13 @@
 {
     "positive_prompt": "black tuxedo clothes",
     "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
-    "segmentation_positive_prompt": "@fashn: [top, pants, belt, skirt, dress]",
-    "segmentation_negative_prompt": "",
-    "steps": 34,
-    "cfg": 7.5,
-    "strength": 0.91,
+    "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress]",
+    "seg_neg_prompt": "",
+    "steps": 23,
+    "cfg": 3.6,
+    "strength": 1,
     "seed": -1,
-    "guidance_rescale": 0,
+    "cfg_rescale": 0,
     "mask_blur": 2.5,
-    "mask_outline_thickness": 5
+    "mask_thickness": 5
 }

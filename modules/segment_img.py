@@ -93,7 +93,7 @@ class SegmentImageMixin:
 
     def manual_segment_worker(self, image_x, image_y):
         try:
-            thickness = float(self.config.get('mask_outline_thickness', 0.0))
+            thickness = float(self.config.get('mask_thickness', 0.0))
             blur = float(self.config.get('mask_blur', 0.0))
             self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
             mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=thickness, blur=blur)
@@ -130,7 +130,7 @@ class SegmentImageMixin:
         binary = (array >= 128).astype(np.uint8)
         thickness = float(thickness)
         if thickness < 0:
-            raise ValueError('mask_outline_thickness cannot be negative.')
+            raise ValueError('mask_thickness cannot be negative.')
         if thickness > 0:
             radius = int(round(thickness))
             if radius > 0:
@@ -242,18 +242,18 @@ class SegmentImageMixin:
         return processed
 
     def make_mask(self, image):
-        segmentation_positive_prompt = str(self.config.get('segmentation_positive_prompt', ''))
-        segmentation_negative_prompt = str(self.config.get('segmentation_negative_prompt', ''))
-        thickness = float(self.config.get('mask_outline_thickness', 0.0))
+        seg_pos_prompt = str(self.config.get('seg_pos_prompt', ''))
+        seg_neg_prompt = str(self.config.get('seg_neg_prompt', ''))
+        thickness = float(self.config.get('mask_thickness', 0.0))
         blur = float(self.config.get('mask_blur', 0.0))
         if thickness < 0:
-            raise ValueError('mask_outline_thickness cannot be negative.')
+            raise ValueError('mask_thickness cannot be negative.')
         if blur < 0:
             raise ValueError('mask_blur cannot be negative.')
         self.load_segmentation()
         try:
             self.console.log('Segmenting...')
-            result = self.segmentation.segment(image, segmentation_positive_prompt, segmentation_negative_prompt, thickness=0)
+            result = self.segmentation.segment(image, seg_pos_prompt, seg_neg_prompt, thickness=0)
             masks = getattr(result, 'masks', None)
             if masks is None and isinstance(result, dict):
                 masks = result.get('masks')
