@@ -47,10 +47,12 @@ class SegmentImageMixin:
 
     def load_manual_segmenter_worker(self):
         try:
-            image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
+            if self.sd_input_image is None:
+                self.preprocess_uploaded_image(self.original_image)
+            image = self.sd_input_image.copy() if self.sd_input_image is not None else self.input_image.copy()
             self.manual_segmenter = SAM2Segmenter()
             self.manual_segmenter.load_image(image)
-            self.manual_selection_image = image
+            self.manual_selection_image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
             self.console.log('SAM2 point selection ready • click the image to append segments')
         except Exception as e:
             self.manual_segment_mode = False
@@ -84,18 +86,28 @@ class SegmentImageMixin:
         if event.x < x or event.x >= x + width or event.y < y or event.y >= y + height:
             return
         image_width, image_height = self.manual_selection_image.size
-        image_x = max(0, min(image_width - 1, int((event.x - x) / width * image_width)))
-        image_y = max(0, min(image_height - 1, int((event.y - y) / height * image_height)))
+        source_x = max(0, min(image_width - 1, int((event.x - x) / width * image_width)))
+        source_y = max(0, min(image_height - 1, int((event.y - y) / height * image_height)))
+        crop_left, crop_top, crop_right, crop_bottom = self.get_effective_crop_box()
+        crop_x1 = max(0, min(image_width - 1, int(round(crop_left * image_width))))
+        crop_y1 = max(0, min(image_height - 1, int(round(crop_top * image_height))))
+        crop_x2 = max(crop_x1 + 1, min(image_width, int(round(crop_right * image_width))))
+        crop_y2 = max(crop_y1 + 1, min(image_height, int(round(crop_bottom * image_height))))
+        if not crop_x1 <= source_x < crop_x2 or not crop_y1 <= source_y < crop_y2:
+            return
+        segment_width, segment_height = self.manual_segmenter.get_image_size()
+        image_x = min(segment_width - 1, int((source_x - crop_x1) / (crop_x2 - crop_x1) * segment_width))
+        image_y = min(segment_height - 1, int((source_y - crop_y1) / (crop_y2 - crop_y1) * segment_height))
         self.manual_segment_loading = True
         self.update_manual_segment_buttons()
         threading.Thread(target=self.manual_segment_worker, args=(image_x, image_y), daemon=True).start()
 
     def manual_segment_worker(self, image_x, image_y):
         try:
-            thickness = float(self.config.get('mask_thickness', 0.0)) * 2.5
-            blur = float(self.config.get('mask_blur', 0.0)) * 2.5
+            thickness = float(self.config.get('mask_thickness', 0.0))
+            blur = float(self.config.get('mask_blur', 0.0))
             self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
-            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size)
+            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True)
             mask = self.apply_mask_adjustments(mask, thickness, blur)
             self.mask_image = mask
             self.mask_source = 'manual'
