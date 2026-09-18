@@ -6,6 +6,10 @@ from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
+SAM2_CHECKPOINT_NAME = "sam2.1_hiera_small.pt"
+SAM2_CHECKPOINT_PATH = Path("checkpoints") / SAM2_CHECKPOINT_NAME
+SAM2_CONFIG_NAME = "sam2.1_hiera_s.yaml"
+
 class SAM2Segmenter:
     def __init__(self, repo_dir=None):
         self.repo_dir = Path(repo_dir).resolve() if repo_dir else None
@@ -20,7 +24,7 @@ class SAM2Segmenter:
         self.prompt_labels = []
 
     def find_repo_dir(self):
-        if self.repo_dir is not None and (self.repo_dir / "sam2.1_hiera_tiny.pt").is_file() and (self.repo_dir / "sam2" / "configs" / "sam2.1" / "sam2.1_hiera_t.yaml").is_file():
+        if self.repo_dir is not None and (self.repo_dir / SAM2_CHECKPOINT_PATH).is_file() and (self.repo_dir / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
             return self.repo_dir
         env_value = os.environ.get("SAM2_REPO_DIR", "").strip()
         candidates = []
@@ -33,7 +37,7 @@ class SAM2Segmenter:
         candidates.extend([base_dir, Path(__file__).resolve().parent, base_dir / "model", base_dir / "models", base_dir.parent, base_dir.parent / "sam2", base_dir.parent / "model", base_dir.parent / "models"])
         for candidate in candidates:
             candidate = candidate.resolve(strict=False)
-            if (candidate / "sam2.1_hiera_tiny.pt").is_file() and (candidate / "sam2" / "configs" / "sam2.1" / "sam2.1_hiera_t.yaml").is_file():
+            if (candidate / SAM2_CHECKPOINT_PATH).is_file() and (candidate / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
                 self.repo_dir = candidate
                 return candidate
         for root in candidates:
@@ -41,14 +45,14 @@ class SAM2Segmenter:
             if not root.exists():
                 continue
             try:
-                for checkpoint in root.rglob("sam2.1_hiera_tiny.pt"):
-                    parent = checkpoint.parent
-                    if (parent / "sam2" / "configs" / "sam2.1" / "sam2.1_hiera_t.yaml").is_file():
+                for checkpoint in root.rglob(SAM2_CHECKPOINT_NAME):
+                    parent = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
+                    if (parent / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
                         self.repo_dir = parent
                         return parent
             except OSError:
                 continue
-        raise FileNotFoundError("SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing sam2.1_hiera_tiny.pt and sam2/configs/sam2.1/sam2.1_hiera_t.yaml.")
+        raise FileNotFoundError("SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing sam2.1_hiera_small.pt and sam2/configs/sam2.1/sam2.1_hiera_s.yaml.")
 
     def load(self):
         if self.model is not None:
@@ -56,12 +60,12 @@ class SAM2Segmenter:
         if self.device != "cuda":
             raise RuntimeError("CUDA GPU is required for SAM 2.")
         repo_dir = self.find_repo_dir()
-        checkpoint = repo_dir / "sam2.1_hiera_tiny.pt"
-        config = repo_dir / "sam2" / "configs" / "sam2.1" / "sam2.1_hiera_t.yaml"
-        print("Loading SAM 2 Tiny...")
+        checkpoint = repo_dir / SAM2_CHECKPOINT_PATH
+        config = repo_dir / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME
+        print("Loading SAM 2 Small...")
         self.model = build_sam2(str(config), str(checkpoint), device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print("SAM 2 Tiny loaded.")
+        print("SAM 2 Small loaded.")
 
     def load_image(self, image):
         if isinstance(image, str):
@@ -116,17 +120,7 @@ class SAM2Segmenter:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 masks, scores, _ = self.predictor.predict(point_coords=points, point_labels=labels, multimask_output=True)
         best_index = int(np.argmax(scores))
-        point_mask = masks[best_index].astype(bool)
-        rows, columns = np.where(point_mask)
-        if rows.size and columns.size:
-            box = np.array([columns.min(), rows.min(), columns.max() + 1, rows.max() + 1], dtype=np.float32)
-            with torch.inference_mode():
-                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                    box_masks, box_scores, _ = self.predictor.predict(box=box, multimask_output=True)
-            box_index = int(np.argmax(box_scores))
-            self.current_mask = box_masks[box_index].astype(bool)
-        else:
-            self.current_mask = point_mask
+        self.current_mask = masks[best_index].astype(bool)
         return self.current_mask, float(scores[best_index])
 
     def append_segment(self):

@@ -7,7 +7,8 @@
 To run **DiffuVision**, execute the Python application using **Visual Studio Code** or your preferred terminal.
 
 > **Hardware Recommendation:** An NVIDIA GPU with CUDA support is strongly recommended. CPU-only execution is currently untested and may result in significantly slower performance.
-I used on RTX 2050, 4GB VRAM and 16GB RAM.
+
+I tested DiffuVision on an **RTX 2050 with 4 GB VRAM and 16 GB RAM**.
 
 ### 1. Download the Project
 
@@ -27,7 +28,7 @@ Download one or both of the following inpainting models:
 * **LazyMix v4.0 Inpainting**
 
   * **Link:** [lazymixRealAmateur_v40Inpainting.safetensors](https://huggingface.co/TheImposterImposters/LazyMix-v4.0-inpainting/blob/main/lazymixRealAmateur_v40Inpainting.safetensors)
-  * **Best for:** Photorealistic and real-life images (It works on anime but idk)
+  * **Best for:** Photorealistic and real-life images. It can also work with anime images.
 
 ### 3. Place the Models
 
@@ -65,22 +66,40 @@ SD_INPAINT_MODEL='["YOUR FULL PATH TO DreamShaper_8_INPAINTING.inpainting.safete
 
 Replace the placeholder path with the actual location of the model file on your computer.
 
-### 4. Download SAM2
+### 4. Download and Install SAM 2.1
 
-Download **SAM2**, including `sam2.1_hiera_tiny.pt`.
+Open the **VS Code terminal** inside your DiffuVision project folder and run these commands **one at a time**:
 
-Rename the downloaded `sam2` folder to `sam2_repo` and place it within the project directory as shown below:
+```powershell
+git clone https://github.com/facebookresearch/sam2.git modules\sam2_repo
+cd modules\sam2_repo
+pip install -e .
+Invoke-WebRequest -Uri "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt" -OutFile "checkpoints\sam2.1_hiera_small.pt"
+```
+
+These commands will:
+
+1. Download the official SAM 2 repository.
+2. Install SAM 2.
+3. Download the **SAM 2.1 Hiera Small** model.
+
+Your project should look similar to this:
 
 ```text
 DiffuVision/
 ├── modules/
 │   ├── sam2_repo/
-│   │   ├── sam2.1_hiera_tiny.pt
+│   │   ├── checkpoints/
+│   │   │   └── sam2.1_hiera_small.pt
+│   │   ├── configs/
+│   │   ├── sam2/
 │   │   └── ...
 │   └── ...
 ├── app.py
 └── ...
 ```
+
+> **Note:** The SAM 2.1 repository does not include the model weights when cloned. The last command downloads the `sam2.1_hiera_small.pt` checkpoint separately.
 
 ### 5. Run the Application
 

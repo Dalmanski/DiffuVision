@@ -2,7 +2,7 @@ import sys, json, time, threading, gc
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
-from PIL import Image, ImageTk, ImageOps
+from PIL import Image, ImageEnhance, ImageTk, ImageOps
 import numpy as np, torch
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
@@ -14,7 +14,7 @@ from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from modules import gender as gender_module
 from modules.upscale_img import enhance
-from modules.segment_img import SegmentImageMixin, MAX_SIDE, OUTPUT_TARGET
+from modules.segment_img import SegmentImageMixin, OUTPUT_TARGET
 from modules.resize_img import ResizeImageMixin, RECOMMENDED_RATIO_SIZES
 from modules.crop_img import CropImageMixin
 
@@ -71,6 +71,9 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.save_job = None
         self.input_photo = None
         self.output_photo = None
+        self.input_loading_visual = False
+        self.input_spinner_id = None
+        self.input_spinner_angle = 0
         self.crop_box = None
         self.crop_box_start = None
         self.input_display_info = None
@@ -88,7 +91,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.positive_prompt_var = ctk.StringVar(value='')
         self.config_visible = False
         self.config_files = []
-        self.active_config_name = 'data/diffusion_config/default.json'
+        self.active_config_name = str(DEFAULT_JSON.relative_to(BASE_DIR)).replace('\\', '/')
         self.active_config_path = DEFAULT_JSON
         self.config = {}
         self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
@@ -267,6 +270,20 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.update_autosave_button()
         self.show_input()
         self.show_output()
+        self.after(80, self.animate_input_loading)
+
+    def input_is_busy(self):
+        return any((self.processing, self.model_loading, self.segmentation_loading, self.classification_loading, self.manual_segment_loading))
+
+    def animate_input_loading(self):
+        busy = self.input_is_busy()
+        if busy != self.input_loading_visual:
+            self.input_loading_visual = busy
+            self.show_input()
+        if busy and self.input_spinner_id is not None:
+            self.input_spinner_angle = (self.input_spinner_angle + 30) % 360
+            self.input_canvas.itemconfigure(self.input_spinner_id, start=self.input_spinner_angle)
+        self.after(80, self.animate_input_loading)
 
     def toggle_config(self):
         self.config_visible = not self.config_visible
@@ -359,7 +376,8 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
     def refresh_config_files(self):
         self.config_files = self.config_manager.refresh_config_files(BASE_DIR)
         values = [self.relative_display_path(p) for p in self.config_files]
-        self.config_menu.configure(values=values if values else ['data/diffusion_config/default.json'])
+        fallback = self.relative_display_path(DEFAULT_JSON)
+        self.config_menu.configure(values=values if values else [fallback])
 
     def load_startup_config(self):
         self.refresh_config_files()
@@ -897,8 +915,16 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             red = Image.new('RGBA', fitted.size, (255, 0, 0, 90))
             overlay = Image.composite(red, overlay, display_mask)
             fitted = Image.alpha_composite(fitted.convert('RGBA'), overlay).convert('RGB')
+        if self.input_is_busy():
+            fitted = ImageEnhance.Brightness(fitted).enhance(0.45)
         self.input_photo = ImageTk.PhotoImage(fitted)
         self.input_canvas.create_image(x, y, anchor='nw', image=self.input_photo)
+        self.input_spinner_id = None
+        if self.input_is_busy():
+            spinner_size = min(70, max(36, min(fitted.size) // 5))
+            center_x = x + fitted.width // 2
+            center_y = y + fitted.height // 2
+            self.input_spinner_id = self.input_canvas.create_arc(center_x - spinner_size, center_y - spinner_size, center_x + spinner_size, center_y + spinner_size, start=self.input_spinner_angle, extent=270, style='arc', outline='#FFFFFF', width=5,)
         self.draw_crop_overlay()
         self.update_crop_button_state()
 

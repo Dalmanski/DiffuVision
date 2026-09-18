@@ -24,6 +24,9 @@ def _load_hf_model(loader, model_name, **kwargs):
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAM2_REPO_DIR = os.path.join(SCRIPT_DIR, "sam2_repo")
+SAM2_CHECKPOINT_NAME = "sam2.1_hiera_small.pt"
+SAM2_CHECKPOINT_PATH = os.path.join("checkpoints", SAM2_CHECKPOINT_NAME)
+SAM2_CONFIG_NAME = "sam2.1_hiera_s.yaml"
 if SAM2_REPO_DIR not in sys.path:
     sys.path.insert(0, SAM2_REPO_DIR)
 
@@ -454,16 +457,16 @@ class SAM2:
     def load(self):
         if self.model is not None:
             return
-        checkpoint = os.path.join(self.repo_dir, "sam2.1_hiera_tiny.pt")
+        checkpoint = os.path.join(self.repo_dir, SAM2_CHECKPOINT_PATH)
         if not os.path.isfile(checkpoint):
             raise FileNotFoundError("SAM 2 checkpoint not found:\n\n" + checkpoint)
-        config = os.path.join(self.repo_dir, "sam2", "configs", "sam2.1", "sam2.1_hiera_t.yaml")
+        config = os.path.join(self.repo_dir, "sam2", "configs", "sam2.1", SAM2_CONFIG_NAME)
         if not os.path.isfile(config):
             raise FileNotFoundError("SAM 2 config not found:\n\n" + config)
-        print("Loading SAM 2 Tiny...")
+        print("Loading SAM 2 Small...")
         self.model = build_sam2(config, checkpoint, device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print("SAM 2 Tiny loaded.")
+        print("SAM 2 Small loaded.")
 
     def unload(self):
         self.predictor = None
@@ -514,7 +517,7 @@ class SegformerB2Clothes:
             return
         print()
         print("Loading SegFormer B2 Clothes...")
-        self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID)
+        self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID, use_fast=False)
         if self.preferred_device == "cuda":
             try:
                 print("  > Loading SegFormer on GPU...")
@@ -527,7 +530,7 @@ class SegformerB2Clothes:
                 print("  > SegFormer GPU load failed.")
                 print(f"  > {e}")
                 self.unload()
-                self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID)
+                self.processor = _load_hf_model(AutoImageProcessor, SEGFORMER_MODEL_ID, use_fast=False)
                 self.model = _load_hf_model(AutoModelForSemanticSegmentation, SEGFORMER_MODEL_ID)
                 self.model = self.model.to("cpu")
                 self.model.eval()
@@ -618,7 +621,7 @@ class FashnHumanParser:
             return
         print()
         print("Loading FASHN Human Parser...")
-        self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID)
+        self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID, use_fast=False)
         if self.preferred_device == "cuda":
             try:
                 print("  > Loading FASHN on GPU...")
@@ -631,7 +634,7 @@ class FashnHumanParser:
                 print("  > FASHN GPU load failed.")
                 print(f"  > {e}")
                 self.unload()
-                self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID)
+                self.processor = _load_hf_model(AutoImageProcessor, FASHN_MODEL_ID, use_fast=False)
                 self.model = _load_hf_model(AutoModelForSemanticSegmentation, FASHN_MODEL_ID)
                 self.model = self.model.to("cpu")
                 self.model.eval()
