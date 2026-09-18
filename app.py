@@ -85,6 +85,8 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.model_var = ctk.StringVar(value='')
         self.image_class_var = ctk.StringVar(value='NONE')
         self.gender_var = ctk.StringVar(value='NONE')
+        self.positive_prompt_var = ctk.StringVar(value='')
+        self.config_visible = False
         self.config_files = []
         self.active_config_name = 'data/diffusion_config/default.json'
         self.active_config_path = DEFAULT_JSON
@@ -114,8 +116,13 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
-        self.left_frame = ctk.CTkScrollableFrame(self)
-        self.left_frame.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
+        self.left_panel = ctk.CTkFrame(self, fg_color='transparent')
+        self.left_panel.grid(row=0, column=0, sticky='nsew', padx=(10, 5), pady=10)
+        self.left_panel.grid_rowconfigure(0, weight=1)
+        self.left_panel.grid_rowconfigure(1, weight=0)
+        self.left_panel.grid_columnconfigure(0, weight=1)
+        self.left_frame = ctk.CTkScrollableFrame(self.left_panel)
+        self.left_frame.grid(row=0, column=0, sticky='nsew')
         self.left_frame.grid_columnconfigure(0, weight=0)
         self.left_frame.grid_columnconfigure(1, weight=1)
         self.input_label = ctk.CTkLabel(self.left_frame, text='INPUT IMAGE')
@@ -126,10 +133,10 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.reload_mask_btn.grid(row=0, column=0, sticky='e', padx=(0, 4))
         self.manual_segment_btn = ctk.CTkButton(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 18))
         self.manual_segment_btn.grid(row=0, column=1, sticky='e', padx=4)
-        self.clear_segment_btn = ctk.CTkButton(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 17), fg_color='#21262D', hover_color='#30363D')
+        self.clear_segment_btn = ctk.CTkButton(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled', font=('Segoe UI Emoji', 17), fg_color='#21262D', hover_color='#30363D')
         self.clear_segment_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
-        self.input_image_container = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=700)
-        self.left_frame.grid_rowconfigure(1, minsize=700, weight=0)
+        self.input_image_container = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=680)
+        self.left_frame.grid_rowconfigure(1, minsize=680, weight=0)
         self.input_image_container.grid(row=1, column=0, columnspan=2, sticky='nsew', padx=2, pady=(0, 8))
         self.input_image_container.grid_propagate(False)
         self.input_image_container.grid_rowconfigure(0, weight=1)
@@ -143,19 +150,35 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.reset_crop_btn.place(relx=1.0, x=-8, y=48, anchor='ne')
         self.upload_btn = ctk.CTkButton(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
         self.upload_btn.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
-        self.preprocessing_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
-        self.preprocessing_row.grid(row=3, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.prompt_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
+        self.prompt_row.grid(row=3, column=0, columnspan=2, sticky='ew', padx=2, pady=(7, 10))
+        self.prompt_row.grid_columnconfigure(0, weight=0)
+        self.prompt_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self.prompt_row, text='ENTER YOUR PROMPT:', anchor='w', width=160).grid(row=0, column=0, sticky='w', padx=(2, 8))
+        self.positive_prompt_entry = ctk.CTkEntry(self.prompt_row, textvariable=self.positive_prompt_var, height=38)
+        self.positive_prompt_entry.grid(row=0, column=1, sticky='ew', padx=(0, 2))
+        self.positive_prompt_entry.bind('<KeyRelease>', self.positive_prompt_changed)
+
+        self.config_container = ctk.CTkFrame(self.left_frame, corner_radius=8)
+        self.config_container.grid_columnconfigure(0, weight=0)
+        self.config_container.grid_columnconfigure(1, weight=1)
+        self.config_container.grid_remove()
+
+        self.preprocessing_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
+        self.preprocessing_row.grid(row=0, column=0, columnspan=2, sticky='ew', padx=2, pady=(6, 8))
         self.preprocessing_row.grid_columnconfigure(0, weight=1)
         self.preprocessing_row.grid_columnconfigure(1, weight=1)
         self.resize_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Auto resize original image for recommended SD inpainting', variable=self.resize_var)
         self.resize_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
         self.apply_class_gender_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class and gender', variable=self.apply_class_gender_var, command=self.toggle_class_gender_prompts)
         self.apply_class_gender_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
-        ctk.CTkLabel(self.left_frame, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=4, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
-        self.model_menu = ctk.CTkOptionMenu(self.left_frame, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
-        self.model_menu.grid(row=4, column=1, sticky='ew', padx=2, pady=(0, 8))
-        self.class_gender_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
-        self.class_gender_row.grid(row=5, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+
+        ctk.CTkLabel(self.config_container, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=1, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
+        self.model_menu = ctk.CTkOptionMenu(self.config_container, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
+        self.model_menu.grid(row=1, column=1, sticky='ew', padx=2, pady=(0, 8))
+
+        self.class_gender_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
+        self.class_gender_row.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.class_gender_row.grid_columnconfigure(0, weight=0)
         self.class_gender_row.grid_columnconfigure(1, weight=1)
         self.class_gender_row.grid_columnconfigure(2, weight=0)
@@ -166,48 +189,67 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         ctk.CTkLabel(self.class_gender_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
         self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female', 'neutral'], command=self.prompt_selection_changed)
         self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 2))
-        ctk.CTkLabel(self.left_frame, text='JSON CONFIG:', anchor='w', width=100).grid(row=6, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
-        self.config_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
-        self.config_row.grid(row=6, column=1, sticky='ew', padx=2, pady=(0, 8))
+
+        ctk.CTkLabel(self.config_container, text='JSON CONFIG:', anchor='w', width=100).grid(row=3, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
+        self.config_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
+        self.config_row.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
         self.config_row.grid_columnconfigure(0, weight=1)
         self.config_row.grid_columnconfigure(1, weight=0)
         self.config_menu = ctk.CTkOptionMenu(self.config_row, values=[], command=self.config_changed)
         self.config_menu.grid(row=0, column=0, sticky='ew', padx=(0, 5))
         self.autosave_btn = ctk.CTkButton(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
-        self.json_box = JSONTextBox(self.left_frame, height=220, font_size=12, fg_color='#000000')
-        self.json_box.grid(row=7, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+
+        self.json_box = JSONTextBox(self.config_container, height=220, font_size=12, fg_color='#000000')
+        self.json_box.grid(row=4, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.json_box.set_change_callback(self.json_changed)
-        self.output_options_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
-        self.output_options_row.grid(row=8, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 0))
+
+        self.output_options_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
+        self.output_options_row.grid(row=5, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.output_options_row.grid_columnconfigure(0, weight=1)
         self.output_options_row.grid_columnconfigure(1, weight=1)
         self.esrgan_output_cb = ctk.CTkCheckBox(self.output_options_row, text='Enhance output image', variable=self.esrgan_output_var)
         self.esrgan_output_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
         self.full_image_output_cb = ctk.CTkCheckBox(self.output_options_row, text='Full image on output', variable=self.full_image_output_var)
         self.full_image_output_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
-        self.generate_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
-        self.generate_row.grid(row=9, column=0, columnspan=2, sticky='ew', padx=2, pady=(12, 8))
-        self.generate_row.grid_columnconfigure(0, weight=1)
-        self.generate_row.grid_columnconfigure(1, weight=0)
+
+        self.generate_container = ctk.CTkFrame(self.left_panel, corner_radius=8)
+        self.generate_container.grid(row=1, column=0, sticky='ew', pady=(8, 0))
+        self.generate_container.grid_columnconfigure(0, weight=1)
+
+        self.generate_row = ctk.CTkFrame(self.generate_container, fg_color='transparent')
+        self.generate_row.grid(row=0, column=0, sticky='ew', padx=8, pady=8)
+        self.generate_row.grid_columnconfigure(0, weight=0)
+        self.generate_row.grid_columnconfigure(1, weight=1)
+        self.generate_row.grid_columnconfigure(2, weight=0)
+
+        self.config_btn = ctk.CTkButton(self.generate_row, text='CONFIG', command=self.toggle_config, width=70, height=42)
+        self.config_btn.grid(row=0, column=0, sticky='w', padx=(0, 5))
+
         self.generate_btn = ctk.CTkButton(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
-        self.generate_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
+        self.generate_btn.grid(row=0, column=1, sticky='ew', padx=5)
+
         self.chili_btn = ctk.CTkButton(self.generate_row, text='🌶️', command=self.chili_generate, state='disabled', width=42, height=42, font=('Segoe UI Emoji', 18))
-        self.chili_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
+        self.chili_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
+
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=10)
         self.right_frame.grid_rowconfigure(0, weight=1)
         self.right_frame.grid_columnconfigure(0, weight=1)
+
         self.output_container = ctk.CTkFrame(self.right_frame, fg_color='#000000', corner_radius=6)
         self.output_container.grid(row=0, column=0, sticky='nsew', padx=10, pady=(10, 6))
         self.output_container.grid_rowconfigure(0, weight=1)
         self.output_container.grid_columnconfigure(0, weight=1)
         self.output_canvas = ctk.CTkCanvas(self.output_container, bg='#000000', highlightthickness=0)
         self.output_canvas.grid(row=0, column=0, sticky='nsew')
+
         self.switch_image_btn = ctk.CTkButton(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34, corner_radius=6, font=('Segoe UI Symbol', 18), fg_color='#21262D', hover_color='#30363D')
         self.switch_image_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
+
         self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
+
         self.save_clear_row = ctk.CTkFrame(self.right_frame, fg_color='transparent')
         self.save_clear_row.grid(row=2, column=0, sticky='ew', padx=10, pady=(6, 10))
         self.save_clear_row.grid_columnconfigure(0, weight=1)
@@ -216,6 +258,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
         self.clear_btn = ctk.CTkButton(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
+
         self.input_canvas.bind('<Configure>', lambda e: self.show_input())
         self.input_canvas.bind('<ButtonPress-1>', self.start_crop)
         self.input_canvas.bind('<B1-Motion>', self.update_crop_selection)
@@ -224,6 +267,16 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.update_autosave_button()
         self.show_input()
         self.show_output()
+
+    def toggle_config(self):
+        self.config_visible = not self.config_visible
+        if self.config_visible:
+            self.config_container.grid(row=4, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+            self.config_btn.configure(fg_color='#3c8dbc', hover_color='#3279a3')
+            self.after(50, lambda: self.left_frame._parent_canvas.yview_moveto(1.0))
+        else:
+            self.config_container.grid_remove()
+            self.config_btn.configure(fg_color=ctk.ThemeManager.theme['CTkButton']['fg_color'], hover_color=ctk.ThemeManager.theme['CTkButton']['hover_color'])
 
     def update_generate_state(self):
         if self.processing:
@@ -376,9 +429,26 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.active_config_name = self.relative_config_path()
         self.json_box.delete('1.0', 'end')
         self.json_box.insert('1.0', json.dumps(self.config, indent=4, ensure_ascii=False))
+        self.positive_prompt_var.set(str(self.config.get('positive_prompt', '')))
         if hasattr(self, 'config_menu'):
             self.config_menu.set(self.relative_display_path(self.active_config_path))
         self.console.log(f'Loaded {Path(self.active_config_name).name}')
+
+    def positive_prompt_changed(self, event=None):
+        text = self.json_box.get('1.0', 'end').strip()
+        if not text:
+            return
+        try:
+            data = json.loads(text)
+        except Exception:
+            return
+        data['positive_prompt'] = self.positive_prompt_var.get()
+        self.config = data
+        updated_text = json.dumps(data, indent=4, ensure_ascii=False)
+        if text == updated_text:
+            return
+        self.json_box.delete('1.0', 'end')
+        self.json_box.insert('1.0', updated_text)
 
     def json_changed(self, event=None):
         text = self.json_box.get('1.0', 'end').strip()
@@ -592,13 +662,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         negative_prompt = str(config.get('negative_prompt', '')).strip()
         if not apply_class_gender:
             return positive_prompt, negative_prompt
-        class_prompts = {
-            REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'),
-            ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'),
-            THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'),
-            CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'),
-            'NONE': ('', ''),
-        }
+        class_prompts = {REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'), ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'), THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'), CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'), 'NONE': ('', '')}
         selected_class = str(selected_class).strip()
         selected_gender = str(selected_gender).strip()
         selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
