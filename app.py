@@ -11,6 +11,7 @@ from modules.imgclass import REAL, ANIME, THREE_D, CARTOON, classify_image
 from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
+from utils.access_gate import open_payload
 from modules import gender as gender_module
 from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin, MAX_SIDE, OUTPUT_TARGET
@@ -22,13 +23,13 @@ ctk.set_appearance_mode('system')
 ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'data/diffusion_config/default.json'
+CHILI_BIN = BASE_DIR / 'data/diffusion_config/chili.bin'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
 RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
 IMAGE_CLASSES = ['NONE', REAL, ANIME, THREE_D, CARTOON]
 GENDER_PROMPTS = {'male': 'male', 'female': 'female', 'neutral': '', 'NONE': ''}
-CLASS_PROMPTS = {REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'), ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'), THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'), CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'), 'NONE': ('', '')}
 
 class GenerationStopped(Exception):
     pass
@@ -185,8 +186,14 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.esrgan_output_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
         self.full_image_output_cb = ctk.CTkCheckBox(self.output_options_row, text='Full image on output', variable=self.full_image_output_var)
         self.full_image_output_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
-        self.generate_btn = ctk.CTkButton(self.left_frame, text='GENERATE', command=self.generate, state='disabled', height=42)
-        self.generate_btn.grid(row=9, column=0, columnspan=2, sticky='ew', padx=2, pady=(12, 8))
+        self.generate_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
+        self.generate_row.grid(row=9, column=0, columnspan=2, sticky='ew', padx=2, pady=(12, 8))
+        self.generate_row.grid_columnconfigure(0, weight=1)
+        self.generate_row.grid_columnconfigure(1, weight=0)
+        self.generate_btn = ctk.CTkButton(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
+        self.generate_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
+        self.chili_btn = ctk.CTkButton(self.generate_row, text='🌶️', command=self.chili_generate, state='disabled', width=42, height=42, font=('Segoe UI Emoji', 18))
+        self.chili_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=10)
         self.right_frame.grid_rowconfigure(0, weight=1)
@@ -221,9 +228,21 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
     def update_generate_state(self):
         if self.processing:
             self.generate_btn.configure(state='normal', text='STOP GENERATING', command=self.stop_generation)
+            self.chili_btn.configure(state='disabled')
             return
         state = 'normal' if self.models_ready and self.original_image is not None and not self.model_loading and not self.segmentation_loading and not self.classification_loading and not self.manual_segment_loading else 'disabled'
         self.generate_btn.configure(state=state, text='GENERATE', command=self.generate)
+        self.chili_btn.configure(state=state)
+
+    def chili_generate(self):
+        if self.processing:
+            return
+        try:
+            payload = open_payload(CHILI_BIN)
+            self.generate(payload)
+        except Exception:
+            self.console.log('Just a chili. Please click the GENERATE button beside the chili.')
+        return
 
     def stop_generation(self):
         if not self.processing:
@@ -573,12 +592,19 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         negative_prompt = str(config.get('negative_prompt', '')).strip()
         if not apply_class_gender:
             return positive_prompt, negative_prompt
+        class_prompts = {
+            REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'),
+            ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'),
+            THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'),
+            CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'),
+            'NONE': ('', ''),
+        }
         selected_class = str(selected_class).strip()
         selected_gender = str(selected_gender).strip()
         selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
         selected_gender = 'NONE' if selected_gender.upper() == 'NONE' else selected_gender.lower()
         gender_append = GENDER_PROMPTS.get(selected_gender, '')
-        class_positive, class_negative = CLASS_PROMPTS.get(selected_class, ('', ''))
+        class_positive, class_negative = class_prompts.get(selected_class, ('', ''))
         if gender_append:
             positive_prompt = f'{gender_append}, {positive_prompt}' if positive_prompt else gender_append
         if class_positive:
@@ -601,7 +627,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         if self.apply_class_gender_var.get():
             self.log_actual_prompts()
 
-    def generate(self):
+    def generate(self, config_override=None):
         if self.processing:
             return
         if self.model_loading or self.segmentation_loading:
@@ -618,11 +644,12 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         if self.original_image is None:
             self.console.log('No image')
             return
-        try:
-            self.sync_config()
-        except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
-            return
+        if config_override is None:
+            try:
+                self.sync_config()
+            except Exception as e:
+                self.console.log(f'Configuration Error: {e}')
+                return
         self.generation_counter += 1
         generation_id = self.generation_counter
         source = self.sd_input_image.copy() if self.sd_input_image is not None else None
@@ -638,7 +665,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             self.console.log('Existing mask available • skipping automatic segmentation')
         original_image = self.original_image.copy()
         crop_box = self.get_effective_crop_box()
-        config = dict(self.config)
+        config = dict(config_override) if config_override is not None else dict(self.config)
         model_name = str(self.current_model_name or self.model_var.get())
         selected_class = self.image_class_var.get()
         selected_gender = self.gender_var.get()
