@@ -5,29 +5,30 @@ class ConsoleTextBox(ctk.CTkTextbox):
         super().__init__(parent, height=height, wrap=wrap, font=font, fg_color=fg_color, text_color=text_color, **kwargs)
         self.configure(state='disabled')
 
+    def _render_log(self, text, live):
+        try:
+            self.configure(state='normal')
+            if live:
+                line_start = self.index('end-1c linestart')
+                self.delete(line_start, 'end-1c')
+                self.insert('end', text)
+            else:
+                self.insert('end', text)
+                if not text.endswith('\n'):
+                    self.insert('end', '\n')
+            self.see('end')
+            self.configure(state='disabled')
+        except Exception:
+            pass
+
     def log(self, text, color=None, live=False):
         if text is None or '[DEBUG]' in str(text):
             return
         text = str(text).replace('\x1b[K', '').replace('\x1b[2K', '').strip('\n')
         if not text:
             return
-        def update():
-            try:
-                self.configure(state='normal')
-                if live:
-                    line_start = self.index('end-1c linestart')
-                    self.delete(line_start, 'end-1c')
-                    self.insert('end', text)
-                else:
-                    self.insert('end', text)
-                    if not text.endswith('\n'):
-                        self.insert('end', '\n')
-                self.see('end')
-                self.configure(state='disabled')
-            except Exception:
-                pass
         try:
-            self.after(0, update)
+            self.after(0, self._render_log, text, live)
         except Exception:
             pass
 

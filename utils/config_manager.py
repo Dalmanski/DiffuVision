@@ -8,24 +8,31 @@ class ConfigManager:
         self.default_json = Path(default_json)
         self.env_path = self.base_dir / '.env'
 
+    @staticmethod
+    def _parse_env_value(value):
+        return value.strip().strip('"').strip("'")
+
+    def _read_env_lines(self):
+        if not self.env_path.exists():
+            return []
+        try:
+            return self.env_path.read_text(encoding='utf-8').splitlines()
+        except Exception:
+            return []
+
     def read_env_file(self):
         values = {}
-        if not self.env_path.exists():
-            return values
-        try:
-            for line in self.env_path.read_text(encoding='utf-8').splitlines():
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                elif ':' in line:
-                    key, value = line.split(':', 1)
-                else:
-                    continue
-                values[key.strip()] = value.strip().strip('"').strip("'")
-        except Exception:
-            return {}
+        for line in self._read_env_lines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, value = line.split('=', 1)
+            elif ':' in line:
+                key, value = line.split(':', 1)
+            else:
+                continue
+            values[key.strip()] = self._parse_env_value(value)
         return values
 
     def discover_models(self, model_dir):
@@ -59,43 +66,32 @@ class ConfigManager:
         return models, next(iter(models), '')
 
     def write_env_settings(self, active_config_path, autosave_enabled):
-        values = {}
-        if self.env_path.exists():
-            try:
-                for line in self.env_path.read_text(encoding='utf-8').splitlines():
-                    line = line.strip()
-                    if not line or line.startswith('#') or ':' not in line:
-                        continue
-                    key, value = line.split(':', 1)
-                    values[key.strip()] = value.strip().strip('"').strip("'")
-            except Exception:
-                pass
+        values = self.read_env_file()
         values['JSON_config'] = self.relative_config_path(active_config_path)
         values['JSON_autosave'] = 'True' if autosave_enabled else 'False'
+
         lines = []
         written = set()
-        if self.env_path.exists():
-            try:
-                for line in self.env_path.read_text(encoding='utf-8').splitlines():
-                    stripped = line.strip()
-                    if not stripped or stripped.startswith('#') or ':' not in stripped:
-                        lines.append(line)
-                        continue
-                    key = stripped.split(':', 1)[0].strip()
-                    if key == 'JSON_config':
-                        lines.append(f'JSON_config: "{values["JSON_config"]}"')
-                        written.add(key)
-                    elif key == 'JSON_autosave':
-                        lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
-                        written.add(key)
-                    else:
-                        lines.append(line)
-            except Exception:
-                lines = []
-        if 'JSON_config' not in written:
-            lines.append(f'JSON_config: "{values["JSON_config"]}"')
-        if 'JSON_autosave' not in written:
-            lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
+        for line in self._read_env_lines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#') or ':' not in stripped:
+                lines.append(line)
+                continue
+            key = stripped.split(':', 1)[0].strip()
+            if key in {'JSON_config', 'JSON_autosave'}:
+                if key == 'JSON_config':
+                    lines.append(f'JSON_config: "{values["JSON_config"]}"')
+                else:
+                    lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
+                written.add(key)
+            else:
+                lines.append(line)
+
+        for key, value in [('JSON_config', f'"{values["JSON_config"]}"'), ('JSON_autosave', values['JSON_autosave'])]:
+            if key not in written:
+                prefix = 'JSON_config' if key == 'JSON_config' else 'JSON_autosave'
+                lines.append(f'{prefix}: {value}')
+
         self.env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
     def relative_config_path(self, active_config_path):

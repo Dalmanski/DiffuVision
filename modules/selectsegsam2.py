@@ -2,8 +2,7 @@ import os
 from pathlib import Path
 import numpy as np
 import torch
-import cv2
-from PIL import Image, ImageFilter
+from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
@@ -117,7 +116,17 @@ class SAM2Segmenter:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 masks, scores, _ = self.predictor.predict(point_coords=points, point_labels=labels, multimask_output=True)
         best_index = int(np.argmax(scores))
-        self.current_mask = masks[best_index].astype(bool)
+        point_mask = masks[best_index].astype(bool)
+        rows, columns = np.where(point_mask)
+        if rows.size and columns.size:
+            box = np.array([columns.min(), rows.min(), columns.max() + 1, rows.max() + 1], dtype=np.float32)
+            with torch.inference_mode():
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    box_masks, box_scores, _ = self.predictor.predict(box=box, multimask_output=True)
+            box_index = int(np.argmax(box_scores))
+            self.current_mask = box_masks[box_index].astype(bool)
+        else:
+            self.current_mask = point_mask
         return self.current_mask, float(scores[best_index])
 
     def append_segment(self):
@@ -137,7 +146,7 @@ class SAM2Segmenter:
         self.append_segment()
         return self.get_accumulated_mask()
 
-    def build_inpainting_mask(self, target_size=None, crop_box=None, original_size=None, thickness=0.0, blur=0.0):
+    def build_inpainting_mask(self, target_size=None, crop_box=None, original_size=None):
         accumulated = self.get_accumulated_mask()
         if accumulated is None or not np.any(accumulated):
             raise RuntimeError("No accumulated selection is available.")
@@ -152,28 +161,11 @@ class SAM2Segmenter:
             raw_mask = raw_mask.crop((x1, y1, x2, y2))
         if target_size is not None and raw_mask.size != tuple(target_size):
             raw_mask = raw_mask.resize(tuple(target_size), Image.Resampling.NEAREST)
-        array = np.asarray(raw_mask, dtype=np.uint8)
-        binary = (array >= 128).astype(np.uint8)
-        thickness = float(thickness) + 5.5
-        if thickness < 0:
-            raise ValueError("mask_outline_thickness cannot be negative.")
-        if thickness > 0:
-            radius = int(round(thickness))
-            if radius > 0:
-                kernel_size = radius * 2 + 1
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-                binary = cv2.dilate(binary, kernel, iterations=1)
-        mask = Image.fromarray((binary * 255).astype(np.uint8), mode="L")
-        blur = float(blur) + 2
-        if blur < 0:
-            raise ValueError("mask_blur cannot be negative.")
-        if blur > 0:
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=blur))
-        return mask.copy()
+        return raw_mask.copy()
 
-    def select_point(self, x, y, positive=True, target_size=None, crop_box=None, original_size=None, thickness=0.0, blur=0.0):
+    def select_point(self, x, y, positive=True, target_size=None, crop_box=None, original_size=None):
         self.append_point_segment(x, y, positive)
-        return self.build_inpainting_mask(target_size=target_size, crop_box=crop_box, original_size=original_size, thickness=thickness, blur=blur)
+        return self.build_inpainting_mask(target_size=target_size, crop_box=crop_box, original_size=original_size)
 
     def clear_all_segments(self):
         self.clear_selection()

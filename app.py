@@ -26,7 +26,9 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
 RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
-IMAGE_CLASSES = [REAL, ANIME, THREE_D, CARTOON]
+IMAGE_CLASSES = ['NONE', REAL, ANIME, THREE_D, CARTOON]
+GENDER_PROMPTS = {'male': 'male', 'female': 'female', 'neutral': '', 'NONE': ''}
+CLASS_PROMPTS = {REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'), ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'), THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'), CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'), 'NONE': ('', '')}
 
 class GenerationStopped(Exception):
     pass
@@ -80,8 +82,8 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.stop_requested = threading.Event()
         self.autosave_var = ctk.BooleanVar(value=True)
         self.model_var = ctk.StringVar(value='')
-        self.image_class_var = ctk.StringVar(value=REAL)
-        self.gender_var = ctk.StringVar(value='neutral')
+        self.image_class_var = ctk.StringVar(value='NONE')
+        self.gender_var = ctk.StringVar(value='NONE')
         self.config_files = []
         self.active_config_name = 'data/diffusion_config/default.json'
         self.active_config_path = DEFAULT_JSON
@@ -146,7 +148,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.preprocessing_row.grid_columnconfigure(1, weight=1)
         self.resize_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Auto resize original image for recommended SD inpainting', variable=self.resize_var)
         self.resize_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
-        self.apply_class_gender_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class and gender', variable=self.apply_class_gender_var)
+        self.apply_class_gender_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class and gender', variable=self.apply_class_gender_var, command=self.toggle_class_gender_prompts)
         self.apply_class_gender_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
         ctk.CTkLabel(self.left_frame, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=4, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.model_menu = ctk.CTkOptionMenu(self.left_frame, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
@@ -158,10 +160,10 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.class_gender_row.grid_columnconfigure(2, weight=0)
         self.class_gender_row.grid_columnconfigure(3, weight=1)
         ctk.CTkLabel(self.class_gender_row, text='IMAGE CLASS:', anchor='w', width=100).grid(row=0, column=0, sticky='w', padx=(2, 8))
-        self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASSES)
+        self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASSES, command=self.prompt_selection_changed)
         self.image_class_menu.grid(row=0, column=1, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
-        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['male', 'female', 'neutral'])
+        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female', 'neutral'], command=self.prompt_selection_changed)
         self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 2))
         ctk.CTkLabel(self.left_frame, text='JSON CONFIG:', anchor='w', width=100).grid(row=6, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
@@ -460,15 +462,17 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
 
     def set_image_class_from_result(self, classification):
         best_class = str(classification.get('best_class', '')).strip()
-        if not best_class:
+        best_class = 'NONE' if best_class.upper() == 'NONE' else best_class.lower()
+        if best_class not in ('NONE', REAL, ANIME, THREE_D, CARTOON):
             best_class = REAL
         self.image_class_var.set(best_class)
         self.image_class_menu.configure(state='normal')
         self.console.log(f'Class: {best_class.upper()}')
 
     def set_gender_from_result(self, result):
-        detected_gender = str(result[0]).strip().lower()
-        if detected_gender not in ('male', 'female', 'neutral'):
+        detected_gender = str(result[0]).strip()
+        detected_gender = 'NONE' if detected_gender.upper() == 'NONE' else detected_gender.lower()
+        if detected_gender not in ('NONE', 'male', 'female', 'neutral'):
             detected_gender = 'neutral'
         self.gender_var.set(detected_gender)
         self.gender_menu.configure(state='normal')
@@ -514,8 +518,8 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             self.after(0, lambda err=str(e): self.console.log(f'Image Classification Error: {err}'))
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
-            self.after(0, lambda: self.image_class_var.set(REAL))
-            self.after(0, lambda: self.gender_var.set('neutral'))
+            self.after(0, lambda: self.image_class_var.set('NONE'))
+            self.after(0, lambda: self.gender_var.set('NONE'))
             self.console.log(f'Classify error: {e}')
         finally:
             self.classification_loading = False
@@ -547,8 +551,8 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             self.classification_result = None
             self.gender_result = None
             self.classification_loading = True
-            self.image_class_var.set(REAL)
-            self.gender_var.set('neutral')
+            self.image_class_var.set('NONE')
+            self.gender_var.set('NONE')
             self.image_class_menu.configure(state='disabled')
             self.gender_menu.configure(state='disabled')
             self.save_btn.configure(state='disabled')
@@ -564,31 +568,38 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         except Exception as e:
             self.console.log(f'Image Error: {e}')
 
-    def append_gender_prompts(self, positive_prompt, negative_prompt, selected_gender):
-        gender_positive = {'male': 'male', 'female': 'female', 'neutral': ''}
-        gender_negative = {'male': '', 'female': '', 'neutral': ''}
-        positive_append = gender_positive.get(selected_gender, '')
-        negative_append = gender_negative.get(selected_gender, '')
-        positive_prompt = positive_prompt.strip()
-        negative_prompt = negative_prompt.strip()
-        if positive_append:
-            positive_prompt = f'{positive_append}, {positive_prompt}' if positive_prompt else positive_append
-        if negative_append:
-            negative_prompt = f'{negative_append}, {negative_prompt}' if negative_prompt else negative_append
+    def build_prompts(self, config, selected_class, selected_gender, apply_class_gender):
+        positive_prompt = str(config.get('positive_prompt', '')).strip()
+        negative_prompt = str(config.get('negative_prompt', '')).strip()
+        if not apply_class_gender:
+            return positive_prompt, negative_prompt
+        selected_class = str(selected_class).strip()
+        selected_gender = str(selected_gender).strip()
+        selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
+        selected_gender = 'NONE' if selected_gender.upper() == 'NONE' else selected_gender.lower()
+        gender_append = GENDER_PROMPTS.get(selected_gender, '')
+        class_positive, class_negative = CLASS_PROMPTS.get(selected_class, ('', ''))
+        if gender_append:
+            positive_prompt = f'{gender_append}, {positive_prompt}' if positive_prompt else gender_append
+        if class_positive:
+            positive_prompt = f'{class_positive} {positive_prompt}' if positive_prompt else class_positive
+        if class_negative:
+            negative_prompt = f'{class_negative}, {negative_prompt}' if negative_prompt else class_negative
         return positive_prompt, negative_prompt
 
-    def append_classification_prompts(self, positive_prompt, negative_prompt, classification):
-        style_positive = {REAL: REAL, ANIME: ANIME, THREE_D: THREE_D, CARTOON: CARTOON}
-        style_negative = {REAL: f'{ANIME}, {CARTOON}, {THREE_D}', ANIME: f'{REAL}, {THREE_D}, {CARTOON}', THREE_D: f'{REAL}, {ANIME}, {CARTOON}', CARTOON: f'{REAL}, {ANIME}, {THREE_D}'}
-        positive_append = style_positive.get(classification, classification)
-        negative_append = style_negative.get(classification, '')
-        positive_prompt = positive_prompt.strip()
-        negative_prompt = negative_prompt.strip()
-        if positive_append:
-            positive_prompt = f'{positive_append}, {positive_prompt}' if positive_prompt else positive_append
-        if negative_append:
-            negative_prompt = f'{negative_append}, {negative_prompt}' if negative_prompt else negative_append
-        return positive_prompt, negative_prompt
+    def log_actual_prompts(self):
+        positive_prompt, negative_prompt = self.build_prompts(self.config, self.image_class_var.get(), self.gender_var.get(), True)
+        self.console.log(f'Positive Prompt: {positive_prompt}')
+        self.console.log(f'Negative Prompt: {negative_prompt}')
+
+    def prompt_selection_changed(self, choice):
+        if self.processing or not self.apply_class_gender_var.get():
+            return
+        self.log_actual_prompts()
+
+    def toggle_class_gender_prompts(self):
+        if self.apply_class_gender_var.get():
+            self.log_actual_prompts()
 
     def generate(self):
         if self.processing:
@@ -628,11 +639,9 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         original_image = self.original_image.copy()
         crop_box = self.get_effective_crop_box()
         config = dict(self.config)
-        classification = dict(self.classification_result or {})
-        gender_result = tuple(self.gender_result) if self.gender_result is not None else ('neutral', 0.0)
         model_name = str(self.current_model_name or self.model_var.get())
-        selected_class = str(self.image_class_var.get()).strip() or REAL
-        selected_gender = str(self.gender_var.get()).strip().lower()
+        selected_class = self.image_class_var.get()
+        selected_gender = self.gender_var.get()
         apply_class_gender = bool(self.apply_class_gender_var.get())
         full_image_output = bool(self.full_image_output_var.get())
         self.stop_requested.clear()
@@ -654,7 +663,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
         self.show_output()
         self.console.log(f'Generation {generation_id} start')
         self.after(0, self.update_generate_state)
-        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
+        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
         return classify_image(file_path)
@@ -666,23 +675,14 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             mask = mask.resize(base.size, Image.Resampling.NEAREST)
         return Image.composite(generated, base, mask).convert('RGB')
 
-    def worker(self, source, mask, original_image, crop_box, config, classification, gender_result, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
+    def worker(self, source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
         try:
-            if selected_gender not in ('male', 'female', 'neutral'):
-                selected_gender = 'neutral'
-            detected_gender = str(gender_result[0]).strip().lower()
-            if detected_gender not in ('male', 'female', 'neutral'):
-                detected_gender = 'neutral'
             steps = int(config.get('steps'))
             cfg = float(config.get('cfg'))
             strength = float(config.get('strength'))
             seed = int(config.get('seed', -1))
             cfg_rescale = float(config.get('cfg_rescale'))
-            positive_prompt = str(config.get('positive_prompt', ''))
-            negative_prompt = str(config.get('negative_prompt', ''))
-            if apply_class_gender:
-                positive_prompt, negative_prompt = self.append_gender_prompts(positive_prompt, negative_prompt, selected_gender)
-                positive_prompt, negative_prompt = self.append_classification_prompts(positive_prompt, negative_prompt, selected_class)
+            positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, apply_class_gender)
             if source is None:
                 self.console.log('Preprocessing...')
                 source = self.preprocess_uploaded_image(original_image)
@@ -717,6 +717,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             self.console.log(f'Seed {seed}')
             self.restore_diffusion_model()
             scheduler_config = dict(self.pipe.scheduler.config)
+
             def progress(pipe, step_index, timestep, callback_kwargs):
                 self.check_stop_requested()
                 step = step_index + 1
@@ -726,6 +727,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
                 percent = int(step / steps * 100)
                 self.console.log(f'{percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}] | {model_name}', live=True)
                 return callback_kwargs
+
             self.console.log(f'Generating {w}x{h}...')
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
@@ -742,6 +744,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
             else:
                 final_image = self.resize_output(generated)
             elapsed = time.time() - self.start_time
+
             def finish_generation():
                 self.output_image = final_image
                 self.output_showing_original = False
@@ -749,6 +752,7 @@ class App(SegmentImageMixin, CropImageMixin, ResizeImageMixin, ctk.CTk):
                 self.save_btn.configure(state='normal')
                 if autosave:
                     self.save()
+
             self.after(0, finish_generation)
             self.console.log(f'Generation {generation_id} done • {self.time_text(elapsed)}')
         except GenerationStopped:

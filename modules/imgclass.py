@@ -4,9 +4,9 @@ from PIL import Image, ImageOps
 import torch
 from transformers import CLIPProcessor, CLIPModel
 
-REAL = "realistic"
+REAL = "photorealistic"
 ANIME = "anime"
-THREE_D = "3D"
+THREE_D = "3d"
 CARTOON = "cartoon"
 
 def _load_hf_model(loader, model_name, **kwargs):
@@ -39,23 +39,30 @@ CLASS_PROMPTS = {REAL: REAL_PROMPTS, ANIME: ANIME_PROMPTS, THREE_D: THREE_D_PROM
 CLASS_NEGATIVE_PROMPTS = {REAL: REAL_NEGATIVE_PROMPTS, ANIME: ANIME_NEGATIVE_PROMPTS, THREE_D: THREE_D_NEGATIVE_PROMPTS, CARTOON: CARTOON_NEGATIVE_PROMPTS}
 CLASS_NAMES = [REAL, ANIME, THREE_D, CARTOON]
 PROMPT_TEMPLATES = ["{}", "a photo of {}", "an image of {}", "a picture of {}", "an artwork showing {}", "this is {}", "this image is {}"]
-all_prompts = []
-prompt_class_ids = []
 
-for class_index, class_name in enumerate(CLASS_NAMES):
-    for prompt in CLASS_PROMPTS[class_name]:
-        for template in PROMPT_TEMPLATES:
-            all_prompts.append(template.format(prompt))
-            prompt_class_ids.append(class_index)
+def _to_tensor_embedding(output):
+    if isinstance(output, torch.Tensor):
+        return output
+    if hasattr(output, "text_embeds"):
+        return output.text_embeds
+    if hasattr(output, "image_embeds"):
+        return output.image_embeds
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output
+    return output[0]
 
-all_negative_prompts = []
-negative_class_ids = []
+def _build_prompt_bank(prompt_map, templates):
+    prompts = []
+    class_ids = []
+    for class_index, class_name in enumerate(CLASS_NAMES):
+        for prompt in prompt_map[class_name]:
+            for template in templates:
+                prompts.append(template.format(prompt))
+                class_ids.append(class_index)
+    return prompts, class_ids
 
-for class_index, class_name in enumerate(CLASS_NAMES):
-    for prompt in CLASS_NEGATIVE_PROMPTS[class_name]:
-        for template in PROMPT_TEMPLATES[:5]:
-            all_negative_prompts.append(template.format(prompt))
-            negative_class_ids.append(class_index)
+all_prompts, prompt_class_ids = _build_prompt_bank(CLASS_PROMPTS, PROMPT_TEMPLATES)
+all_negative_prompts, negative_class_ids = _build_prompt_bank(CLASS_NEGATIVE_PROMPTS, PROMPT_TEMPLATES[:5])
 
 text_inputs = processor(text=all_prompts, return_tensors="pt", padding=True)
 text_inputs = {key: value.to(device) for key, value in text_inputs.items()}
@@ -64,23 +71,9 @@ negative_text_inputs = processor(text=all_negative_prompts, return_tensors="pt",
 negative_text_inputs = {key: value.to(device) for key, value in negative_text_inputs.items()}
 
 with torch.no_grad():
-    text_output = model.get_text_features(**text_inputs)
-    if not isinstance(text_output, torch.Tensor):
-        if hasattr(text_output, "text_embeds"):
-            text_output = text_output.text_embeds
-        elif hasattr(text_output, "pooler_output"):
-            text_output = text_output.pooler_output
-        else:
-            text_output = text_output[0]
+    text_output = _to_tensor_embedding(model.get_text_features(**text_inputs))
     text_features = text_output / text_output.norm(dim=-1, keepdim=True)
-    negative_text_output = model.get_text_features(**negative_text_inputs)
-    if not isinstance(negative_text_output, torch.Tensor):
-        if hasattr(negative_text_output, "text_embeds"):
-            negative_text_output = negative_text_output.text_embeds
-        elif hasattr(negative_text_output, "pooler_output"):
-            negative_text_output = negative_text_output.pooler_output
-        else:
-            negative_text_output = negative_text_output[0]
+    negative_text_output = _to_tensor_embedding(model.get_text_features(**negative_text_inputs))
     negative_text_features = negative_text_output / negative_text_output.norm(dim=-1, keepdim=True)
 
 def get_class_score(image_features, class_index):
@@ -107,14 +100,7 @@ def _get_image_features(images):
     inputs = processor(images=images, return_tensors="pt")
     inputs = {key: value.to(device) for key, value in inputs.items()}
     with torch.no_grad():
-        output = model.get_image_features(**inputs)
-        if not isinstance(output, torch.Tensor):
-            if hasattr(output, "image_embeds"):
-                output = output.image_embeds
-            elif hasattr(output, "pooler_output"):
-                output = output.pooler_output
-            else:
-                output = output[0]
+        output = _to_tensor_embedding(model.get_image_features(**inputs))
         output = output / output.norm(dim=-1, keepdim=True)
     return output
 

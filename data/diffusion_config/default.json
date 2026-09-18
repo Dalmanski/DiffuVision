@@ -3,11 +3,12 @@
     "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
     "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress]",
     "seg_neg_prompt": "",
-    "steps": 23,
+    "steps": 26,
     "cfg": 3.6,
     "strength": 1,
     "seed": -1,
     "cfg_rescale": 0,
     "mask_blur": 2.5,
-    "mask_thickness": 5
+    "mask_thickness": 5,
+    "c": "lowest precise: steps=23"
 }

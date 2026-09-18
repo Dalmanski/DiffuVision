@@ -1,10 +1,9 @@
 from PIL import Image, ImageFilter
 import gc
 import threading
-import cv2
 import numpy as np
 import torch
-from modules.segdinosam2 import SegDinoSAM2
+from modules.segdinosam2 import SegDinoSAM2, adjust_mask_thickness
 from modules.selectsegsam2 import SAM2Segmenter
 from modules.upscale_img import enhance
 MAX_SIDE = 768
@@ -93,10 +92,11 @@ class SegmentImageMixin:
 
     def manual_segment_worker(self, image_x, image_y):
         try:
-            thickness = float(self.config.get('mask_thickness', 0.0))
-            blur = float(self.config.get('mask_blur', 0.0))
+            thickness = float(self.config.get('mask_thickness', 0.0)) * 2.5
+            blur = float(self.config.get('mask_blur', 0.0)) * 2.5
             self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
-            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size, thickness=thickness, blur=blur)
+            mask = self.manual_segmenter.select_point(image_x, image_y, positive=True, target_size=self.sd_input_image.size if self.sd_input_image is not None else None, crop_box=self.get_effective_crop_box(), original_size=self.original_image.size)
+            mask = self.apply_mask_adjustments(mask, thickness, blur)
             self.mask_image = mask
             self.mask_source = 'manual'
             self.output_image = None
@@ -125,19 +125,16 @@ class SegmentImageMixin:
         self.show_output()
         self.update_generate_state()
 
-    def apply_mask_adjustments(self, mask, thickness):
-        array = np.asarray(mask, dtype=np.uint8)
-        binary = (array >= 128).astype(np.uint8)
-        thickness = float(thickness)
-        if thickness < 0:
-            raise ValueError('mask_thickness cannot be negative.')
-        if thickness > 0:
-            radius = int(round(thickness))
-            if radius > 0:
-                kernel_size = radius * 2 + 1
-                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-                binary = cv2.dilate(binary, kernel, iterations=1)
-        return Image.fromarray((binary * 255).astype(np.uint8), 'L')
+    def apply_mask_adjustments(self, mask, thickness, blur=0.0):
+        binary = np.asarray(mask, dtype=np.uint8) >= 128
+        adjusted_mask = adjust_mask_thickness(binary, thickness)
+        adjusted = Image.fromarray((adjusted_mask * 255).astype(np.uint8), 'L')
+        blur = float(blur)
+        if blur < 0:
+            raise ValueError('mask_blur cannot be negative.')
+        if blur > 0:
+            adjusted = adjusted.filter(ImageFilter.GaussianBlur(radius=blur))
+        return adjusted
 
     def ensure_segmentation(self):
         if not hasattr(self, 'segmentation') or self.segmentation is None:
@@ -279,9 +276,7 @@ class SegmentImageMixin:
                 count = len(masks)
             if raw_mask.size != image.size:
                 raw_mask = raw_mask.resize(image.size, Image.Resampling.NEAREST)
-            mask = self.apply_mask_adjustments(raw_mask, thickness)
-            if blur > 0:
-                mask = mask.filter(ImageFilter.GaussianBlur(radius=blur))
+            mask = self.apply_mask_adjustments(raw_mask, thickness, blur)
             self.console.log(f'Mask ready • {count} mask(s)')
             return mask.copy()
         finally:
