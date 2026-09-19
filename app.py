@@ -28,9 +28,9 @@ CHILI_BIN = BASE_DIR / 'data/diffusion_config/chili.bin'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
-RATIO_OPTIONS = ['1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
+RATIO_OPTIONS = ['FREE', '1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
 IMAGE_CLASSES = ['NONE', REAL, ANIME, THREE_D, CARTOON]
-GENDER_PROMPTS = {'male': 'male', 'female': 'female', 'neutral': '', 'NONE': ''}
+GENDER_PROMPTS = {'male': 'male', 'female': 'female', 'NONE': ''}
 
 class GenerationStopped(Exception):
     pass
@@ -211,7 +211,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASSES, command=self.prompt_selection_changed)
         self.image_class_menu.grid(row=0, column=1, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
-        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female', 'neutral'], command=self.prompt_selection_changed)
+        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female'], command=self.prompt_selection_changed)
         self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
         self.age_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.age_var, values=AGE_CLASSES, command=self.prompt_selection_changed)
@@ -590,8 +590,8 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def set_gender_from_result(self, result):
         detected_gender = str(result[0]).strip()
         detected_gender = 'NONE' if detected_gender.upper() == 'NONE' else detected_gender.lower()
-        if detected_gender not in ('NONE', 'male', 'female', 'neutral'):
-            detected_gender = 'neutral'
+        if detected_gender not in ('NONE', 'male', 'female'):
+            detected_gender = 'NONE'
         self.gender_var.set(detected_gender)
         self.gender_menu.configure(state='normal')
         print(f'Gender: {detected_gender.upper()}')

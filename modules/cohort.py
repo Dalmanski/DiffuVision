@@ -41,8 +41,6 @@ AGE_SD_PROMPTS = {
     )
     for age in AGE_CLASSES
 }
-NEUTRAL_THRESHOLD = 60.0
-
 def _predict(image_path, prompts):
     from PIL import Image
     image = Image.open(image_path).convert("RGB")
@@ -56,8 +54,6 @@ def _predict(image_path, prompts):
 
 def predict_gender(image_path):
     index, confidence = _predict(image_path, GENDER_PROMPTS)
-    if confidence < NEUTRAL_THRESHOLD:
-        return "neutral", confidence
     return GENDER_NAMES[index], confidence
 
 def predict_age(image_path):

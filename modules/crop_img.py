@@ -64,6 +64,13 @@ class CropImageMixin:
 
     def get_crop_ratio(self):
         value = self.ratio_var.get().strip().upper()
+        if value == 'FREE':
+            if self.original_image is None:
+                return None
+            left, top, right, bottom = self.get_effective_crop_box()
+            crop_width = max(1.0, (right - left) * self.original_image.width)
+            crop_height = max(1.0, (bottom - top) * self.original_image.height)
+            return crop_width / crop_height
         left, right = value.split(':', 1)
         return float(left) / float(right)
 
@@ -123,6 +130,10 @@ class CropImageMixin:
         if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
             return
         if self.original_image is None:
+            return
+        if choice.strip().upper() == 'FREE':
+            self.crop_box = 0.0, 0.0, 1.0, 1.0
+            self.mark_crop_changed(f'Ratio {choice}')
             return
         ratio = self.get_crop_ratio()
         self.crop_box = self.clamp_fixed_crop_box(self.get_effective_crop_box(), ratio)

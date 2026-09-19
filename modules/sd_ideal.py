@@ -2,6 +2,7 @@ from PIL import Image, ImageOps
 
 MAX_SIDE = 768
 OUTPUT_TARGET = 1080
+RECOMMENDED_PIXEL_VOLUME = 512 * 512
 
 RECOMMENDED_RATIO_SIZES = {
     '1:1': (512, 512),
@@ -16,12 +17,19 @@ RECOMMENDED_RATIO_SIZES = {
 }
 
 class SDIdealImageMixin:
+    def recommended_size_for_ratio(self, ratio):
+        width = max(8, int(round((RECOMMENDED_PIXEL_VOLUME * ratio) ** 0.5 / 8)) * 8)
+        height = max(8, int(round((RECOMMENDED_PIXEL_VOLUME / ratio) ** 0.5 / 8)) * 8)
+        return width, height
+
     def resize_image(self, image):
         image = image.convert('RGB')
         width, height = image.size
         ratio = self.ratio_var.get().strip().upper()
         if ratio in RECOMMENDED_RATIO_SIZES:
             new_width, new_height = RECOMMENDED_RATIO_SIZES[ratio]
+        elif ratio == 'FREE':
+            new_width, new_height = self.recommended_size_for_ratio(width / height)
         else:
             longest = max(width, height)
             scale = min(1.0, MAX_SIDE / longest)
@@ -81,6 +89,8 @@ class SDIdealImageMixin:
         ratio = self.ratio_var.get().strip().upper()
         if self.recommended_sd_var.get() and ratio in RECOMMENDED_RATIO_SIZES:
             new_width, new_height = RECOMMENDED_RATIO_SIZES[ratio]
+        elif self.recommended_sd_var.get() and ratio == 'FREE':
+            new_width, new_height = self.recommended_size_for_ratio(width / height)
         elif self.recommended_sd_var.get():
             longest = max(width, height)
             scale = min(1.0, MAX_SIDE / longest)
