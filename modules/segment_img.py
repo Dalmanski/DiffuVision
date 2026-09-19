@@ -6,8 +6,6 @@ import torch
 from modules.segdinosam2 import SegDinoSAM2, adjust_mask_thickness
 from modules.selectsegsam2 import SAM2Segmenter
 from modules.upscale_img import enhance
-MAX_SIDE = 768
-OUTPUT_TARGET = 1080
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class SegmentImageMixin:
@@ -109,6 +107,12 @@ class SegmentImageMixin:
             self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
             mask = self.manual_segmenter.select_point(image_x, image_y, positive=True)
             mask = self.apply_mask_adjustments(mask, thickness, blur)
+            existing_mask = self.mask_image
+            if self.has_valid_mask(existing_mask):
+                if existing_mask.size != mask.size:
+                    existing_mask = existing_mask.resize(mask.size, Image.Resampling.NEAREST)
+                combined = np.maximum(np.asarray(existing_mask, dtype=np.uint8), np.asarray(mask, dtype=np.uint8))
+                mask = Image.fromarray(combined.astype(np.uint8), mode='L')
             self.mask_image = mask
             self.mask_source = 'manual'
             self.output_image = None
@@ -243,9 +247,7 @@ class SegmentImageMixin:
         base = image.convert('RGB').copy()
         self.input_image = base.copy()
         cropped = self.get_cropped_image(base)
-        processed = cropped.copy()
-        if self.resize_var.get():
-            processed = self.resize_image(processed)
+        processed = self.prepare_sd_image(cropped)
         self.sd_input_image = processed.copy()
         self.console.log(f'Input ready {processed.width}x{processed.height}')
         return processed

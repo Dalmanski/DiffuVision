@@ -463,10 +463,10 @@ class SAM2:
         config = os.path.join(self.repo_dir, "sam2", "configs", "sam2.1", SAM2_CONFIG_NAME)
         if not os.path.isfile(config):
             raise FileNotFoundError("SAM 2 config not found:\n\n" + config)
-        print("Loading SAM 2 Small...")
+        print(f"Loading SAM 2 ({SAM2_CHECKPOINT_NAME}, {SAM2_CONFIG_NAME})...")
         self.model = build_sam2(config, checkpoint, device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print("SAM 2 Small loaded.")
+        print(f"SAM 2 ({SAM2_CHECKPOINT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
 
     def unload(self):
         self.predictor = None
