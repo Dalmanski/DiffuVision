@@ -28,19 +28,19 @@ class SegmentImageMixin:
             return
         if self.manual_segment_mode:
             self.disable_manual_segment_mode()
-            self.console.log('SAM2 point selection disabled')
+            print('SAM2 point selection disabled')
             return
         try:
             self.sync_config()
         except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
+            print(f'Configuration Error: {e}')
             return
         self.manual_segment_mode = True
         self.manual_segment_loading = True
         self.manual_segment_btn.configure(state='disabled')
         self.clear_segment_btn.configure(state='normal' if self.original_image is not None else 'disabled')
         self.update_crop_button_state()
-        self.console.log('Loading SAM2 point selection...')
+        print('Loading SAM2 point selection...')
         threading.Thread(target=self.load_manual_segmenter_worker, daemon=True).start()
 
     def load_manual_segmenter_worker(self):
@@ -51,11 +51,11 @@ class SegmentImageMixin:
             self.manual_segmenter = SAM2Segmenter()
             self.manual_segmenter.load_image(image)
             self.manual_selection_image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
-            self.console.log('SAM2 point selection ready • click the image to append segments')
+            print('SAM2 point selection ready • click the image to append segments')
         except Exception as e:
             self.manual_segment_mode = False
-            self.console.log(f'SAM2 point selection error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Error: {err}'))
+            print(f'SAM2 point selection error: {e}')
+            self.after(0, lambda err=str(e): print(f'SAM2 Error: {err}'))
         finally:
             self.manual_segment_loading = False
             self.after(0, self.update_crop_button_state)
@@ -104,7 +104,7 @@ class SegmentImageMixin:
         try:
             thickness = float(self.config.get('mask_thickness', 0.0))
             blur = float(self.config.get('mask_blur', 0.0))
-            self.console.log(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
+            print(f'Manual mask settings: outline={thickness:g}px, blur={blur:g}px')
             mask = self.manual_segmenter.select_point(image_x, image_y, positive=True)
             mask = self.apply_mask_adjustments(mask, thickness, blur)
             existing_mask = self.mask_image
@@ -119,10 +119,10 @@ class SegmentImageMixin:
             self.output_showing_original = False
             self.after(0, self.show_input)
             self.after(0, self.show_output)
-            self.console.log('Segment appended')
+            print('Segment appended')
         except Exception as e:
-            self.console.log(f'SAM2 selection error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'SAM2 Selection Error: {err}'))
+            print(f'SAM2 selection error: {e}')
+            self.after(0, lambda err=str(e): print(f'SAM2 Selection Error: {err}'))
         finally:
             self.manual_segment_loading = False
             self.after(0, self.update_crop_button_state)
@@ -136,7 +136,7 @@ class SegmentImageMixin:
             self.manual_segmenter.clear_all_segments()
         self.reset_preview_state()
         self.generate_btn.configure(state='disabled')
-        self.console.log('All manually appended segments removed')
+        print('All manually appended segments removed')
         self.show_input()
         self.show_output()
         self.update_generate_state()
@@ -191,17 +191,17 @@ class SegmentImageMixin:
         self.generate_btn.configure(state='disabled')
         self.after(0, self.show_output)
         try:
-            self.console.log('Building mask...')
+            print('Building mask...')
             mask = self.make_mask(image)
             self.mask_image = mask.copy()
             self.mask_source = 'auto'
             self.after(0, self.show_input)
             self.after(0, self.show_output)
-            self.console.log('Mask ready')
+            print('Mask ready')
         except Exception as e:
             self.mask_image = None
-            self.console.log(f'Mask error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'Mask Error: {err}'))
+            print(f'Mask error: {e}')
+            self.after(0, lambda err=str(e): print(f'Mask Error: {err}'))
         finally:
             self.segmentation_loading = False
             self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None and not self.processing else 'disabled'))
@@ -218,7 +218,7 @@ class SegmentImageMixin:
         try:
             self.sync_config()
         except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
+            print(f'Configuration Error: {e}')
             return
         self.mask_image = None
         self.mask_source = None
@@ -230,7 +230,7 @@ class SegmentImageMixin:
         self.update_manual_segment_buttons()
         self.show_input()
         self.show_output()
-        self.console.log('Reloading mask...')
+        print('Reloading mask...')
         threading.Thread(target=self.reload_mask_worker, daemon=True).start()
 
     def reload_mask_worker(self):
@@ -239,8 +239,8 @@ class SegmentImageMixin:
             self.after(0, self.show_input)
             self.regenerate_mask(processed.copy())
         except Exception as e:
-            self.console.log(f'RELOAD MASK error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'Mask Reload Error: {err}'))
+            print(f'RELOAD MASK error: {e}')
+            self.after(0, lambda err=str(e): print(f'Mask Reload Error: {err}'))
             self.after(0, lambda: self.reload_mask_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
 
     def preprocess_uploaded_image(self, image):
@@ -249,7 +249,7 @@ class SegmentImageMixin:
         cropped = self.get_cropped_image(base)
         processed = self.prepare_sd_image(cropped)
         self.sd_input_image = processed.copy()
-        self.console.log(f'Input ready {processed.width}x{processed.height}')
+        print(f'Input ready {processed.width}x{processed.height}')
         return processed
 
     def make_mask(self, image):
@@ -263,7 +263,7 @@ class SegmentImageMixin:
             raise ValueError('mask_blur cannot be negative.')
         self.load_segmentation()
         try:
-            self.console.log('Segmenting...')
+            print('Segmenting...')
             result = self.segmentation.segment(image, seg_pos_prompt, seg_neg_prompt, thickness=0)
             masks = getattr(result, 'masks', None)
             if masks is None and isinstance(result, dict):
@@ -291,7 +291,7 @@ class SegmentImageMixin:
             if raw_mask.size != image.size:
                 raw_mask = raw_mask.resize(image.size, Image.Resampling.NEAREST)
             mask = self.apply_mask_adjustments(raw_mask, thickness, blur)
-            self.console.log(f'Mask ready • {count} mask(s)')
+            print(f'Mask ready • {count} mask(s)')
             return mask.copy()
         finally:
             self.unload_segmentation()

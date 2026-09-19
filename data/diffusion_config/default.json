@@ -1,5 +1,5 @@
 {
-    "positive_prompt": "black tuxedo clothes",
+    "positive_prompt": "wearing black shirt",
     "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
     "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress]",
     "seg_neg_prompt": "",

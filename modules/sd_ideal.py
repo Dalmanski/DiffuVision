@@ -29,7 +29,7 @@ class SDIdealImageMixin:
             new_height = max(8, int(round(height * scale / 8)) * 8)
         if (new_width, new_height) == (width, height):
             return image
-        self.console.log(f'Resize → {new_width}x{new_height}')
+        print(f'Resize → {new_width}x{new_height}')
         return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
     def prepare_sd_image(self, image):
@@ -89,5 +89,5 @@ class SDIdealImageMixin:
         else:
             new_width = max(64, (width // 8) * 8)
             new_height = max(64, (height // 8) * 8)
-        self.console.log(f'Size {new_width}x{new_height} • {ratio}')
+        print(f'Size {new_width}x{new_height} • {ratio}')
         return new_width, new_height

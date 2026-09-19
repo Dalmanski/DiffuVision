@@ -12,7 +12,8 @@ from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
-from modules import gender as gender_module
+from modules import cohort as cohort_module
+from modules.cohort import AGE_CLASSES, AGE_SD_PROMPTS
 from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin
 from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
@@ -62,6 +63,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.mask_source = None
         self.classification_result = None
         self.gender_result = None
+        self.age_result = None
         self.classification_loading = False
         self.processing = False
         self.models_ready = False
@@ -89,6 +91,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.model_var = ctk.StringVar(value='')
         self.image_class_var = ctk.StringVar(value='NONE')
         self.gender_var = ctk.StringVar(value='NONE')
+        self.age_var = ctk.StringVar(value='NONE')
         self.positive_prompt_var = ctk.StringVar(value='')
         self.config_visible = False
         self.config_files = []
@@ -191,7 +194,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.preprocessing_row.grid_columnconfigure(1, weight=1)
         self.recommended_sd_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Recommended SD inpainting image', variable=self.recommended_sd_var)
         self.recommended_sd_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
-        self.apply_class_gender_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class and gender', variable=self.apply_class_gender_var, command=self.toggle_class_gender_prompts)
+        self.apply_class_gender_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class, age and gender', variable=self.apply_class_gender_var, command=self.toggle_class_gender_prompts)
         self.apply_class_gender_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
         ctk.CTkLabel(self.config_container, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=1, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.model_menu = ctk.CTkOptionMenu(self.config_container, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
@@ -202,12 +205,17 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.class_gender_row.grid_columnconfigure(1, weight=1)
         self.class_gender_row.grid_columnconfigure(2, weight=0)
         self.class_gender_row.grid_columnconfigure(3, weight=1)
+        self.class_gender_row.grid_columnconfigure(4, weight=0)
+        self.class_gender_row.grid_columnconfigure(5, weight=1)
         ctk.CTkLabel(self.class_gender_row, text='IMAGE CLASS:', anchor='w', width=100).grid(row=0, column=0, sticky='w', padx=(2, 8))
         self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASSES, command=self.prompt_selection_changed)
         self.image_class_menu.grid(row=0, column=1, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
         self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female', 'neutral'], command=self.prompt_selection_changed)
-        self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 2))
+        self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 8))
+        ctk.CTkLabel(self.class_gender_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
+        self.age_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.age_var, values=AGE_CLASSES, command=self.prompt_selection_changed)
+        self.age_menu.grid(row=0, column=5, sticky='ew', padx=(0, 2))
         ctk.CTkLabel(self.config_container, text='JSON CONFIG:', anchor='w', width=100).grid(row=3, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
         self.config_row.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
@@ -313,14 +321,14 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             payload = open_payload(CHILI_BIN)
             self.generate(payload)
         except Exception:
-            self.console.log('Just a chili. Please click the GENERATE button beside the chili.')
+            print('Just a chili. Please click the GENERATE button beside the chili.')
         return
 
     def stop_generation(self):
         if not self.processing:
             return
         self.stop_requested.set()
-        self.console.log('Stopping...')
+        print('Stopping...')
         self.generate_btn.configure(state='disabled', text='STOPPING...')
 
     def check_stop_requested(self):
@@ -408,7 +416,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.load_config(target)
             self.write_env_settings()
         except Exception as e:
-            self.console.log(f'Configuration Error: {e}')
+            print(f'Configuration Error: {e}')
 
     def toggle_autosave(self):
         if self.processing:
@@ -452,7 +460,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.positive_prompt_var.set(str(self.config.get('positive_prompt', '')))
         if hasattr(self, 'config_menu'):
             self.config_menu.set(self.relative_display_path(self.active_config_path))
-        self.console.log(f'Loaded {Path(self.active_config_name).name}')
+        print(f'Loaded {Path(self.active_config_name).name}')
 
     def positive_prompt_changed(self, event=None):
         text = self.json_box.get('1.0', 'end').strip()
@@ -477,7 +485,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         try:
             self.config = self.config_manager.sync_config(self.active_config_path, text, False)
         except Exception as e:
-            self.console.log(f'JSON error: {e}')
+            print(f'JSON error: {e}')
             return
         if self.save_job:
             try:
@@ -495,9 +503,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             text = self.json_box.get('1.0', 'end').strip()
             self.config = self.config_manager.save_json(self.active_config_path, text, self.autosave_var.get())
             self.write_env_settings()
-            self.console.log('Config saved')
+            print('Config saved')
         except Exception as e:
-            self.console.log(f'JSON error: {e}')
+            print(f'JSON error: {e}')
 
     def sync_config(self):
         text = self.json_box.get('1.0', 'end').strip()
@@ -514,7 +522,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def restore_diffusion_model(self):
         if self.pipe is None:
             return
-        self.console.log(f'Model → {DEVICE.upper()}')
+        print(f'Model → {DEVICE.upper()}')
         if DEVICE == 'cuda' and self.pipeline_dtype == torch.float16:
             self.pipe.to(DEVICE, dtype=torch.float16)
         else:
@@ -541,10 +549,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 raise FileNotFoundError(f'Model "{model_name}" was not found. Add a .safetensors file to the model folder or list it in "SD_INPAINT_MODEL" in .env.')
             self.unload_pipe()
             dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
-            self.console.log(f'Loading {model_name}')
+            print(f'Loading {model_name}')
             pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(DEVICE)
+            pipe.set_progress_bar_config(disable=True)
             pipe.enable_attention_slicing()
             if DEVICE == 'cuda':
                 try:
@@ -557,17 +566,17 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.cleanup_gpu()
             self.models_ready = True
             self.model_loading = False
-            self.console.log(f'{model_name} ready • {DEVICE.upper()}')
+            print(f'{model_name} ready • {DEVICE.upper()}')
             self.after(0, lambda: self.model_menu.configure(state='normal'))
             self.after(0, self.update_generate_state)
         except Exception as e:
             self.models_ready = False
             self.model_loading = False
             self.segmentation_loading = False
-            self.console.log(f'Error: {e}')
+            print(f'Error: {e}')
             self.cleanup_gpu()
             self.after(0, lambda: self.model_menu.configure(state='normal'))
-            self.after(0, lambda err=str(e): self.console.log(f'Model Error: {err}'))
+            self.after(0, lambda err=str(e): print(f'Model Error: {err}'))
 
     def set_image_class_from_result(self, classification):
         best_class = str(classification.get('best_class', '')).strip()
@@ -576,7 +585,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             best_class = REAL
         self.image_class_var.set(best_class)
         self.image_class_menu.configure(state='normal')
-        self.console.log(f'Class: {best_class.upper()}')
+        print(f'Class: {best_class.upper()}')
 
     def set_gender_from_result(self, result):
         detected_gender = str(result[0]).strip()
@@ -585,14 +594,31 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             detected_gender = 'neutral'
         self.gender_var.set(detected_gender)
         self.gender_menu.configure(state='normal')
-        self.console.log(f'Gender: {detected_gender.upper()}')
+        print(f'Gender: {detected_gender.upper()}')
+
+    def set_age_from_result(self, result):
+        detected_age = str(result[0]).strip().lower()
+        if detected_age not in ('child', 'teenager', 'young adult', 'adult', 'middle-aged', 'elderly'):
+            detected_age = 'NONE'
+        self.age_var.set(detected_age)
+        self.age_menu.configure(state='normal')
+        print(f'Age: {detected_age.upper()}')
 
     def predict_gender_image(self, file_path):
-        model = getattr(gender_module, 'model', None)
+        model = getattr(cohort_module, 'model', None)
         if model is None:
-            raise RuntimeError('gender.py model is not available.')
+            raise RuntimeError('cohort.py model is not available.')
         try:
-            return gender_module.predict_gender(file_path)
+            return cohort_module.predict_gender(file_path)
+        finally:
+            self.cleanup_gpu()
+
+    def predict_age_image(self, file_path):
+        model = getattr(cohort_module, 'model', None)
+        if model is None:
+            raise RuntimeError('cohort.py model is not available.')
+        try:
+            return cohort_module.predict_age(file_path)
         finally:
             self.cleanup_gpu()
 
@@ -603,33 +629,41 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             rgba = image.convert('RGBA')
             background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
             image = Image.alpha_composite(background, rgba).convert('RGB')
-            self.console.log('Alpha background filled')
+            print('Alpha background filled')
         else:
             image = image.convert('RGB')
         return image
 
     def classify_after_upload(self, file_path):
         try:
-            self.console.log('Classifying image...')
+            print('Classifying image...')
             classification = self.classify_input_image(file_path)
             self.classification_result = classification
             self.after(0, lambda result=classification: self.set_image_class_from_result(result))
-            self.console.log('Classifying gender...')
+            print('Classifying gender...')
             gender_result = self.predict_gender_image(file_path)
             self.gender_result = gender_result
             self.after(0, lambda result=gender_result: self.set_gender_from_result(result))
-            self.console.log('Classification ready')
+            print('Classifying age...')
+            age_result = self.predict_age_image(file_path)
+            self.age_result = age_result
+            self.after(0, lambda result=age_result: self.set_age_from_result(result))
+            print('Classification ready')
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
+            self.after(0, lambda: self.age_menu.configure(state='normal'))
         except Exception as e:
             self.classification_result = None
             self.gender_result = None
-            self.after(0, lambda err=str(e): self.console.log(f'Image Classification Error: {err}'))
+            self.age_result = None
+            self.after(0, lambda err=str(e): print(f'Image Classification Error: {err}'))
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
+            self.after(0, lambda: self.age_menu.configure(state='normal'))
             self.after(0, lambda: self.image_class_var.set('NONE'))
             self.after(0, lambda: self.gender_var.set('NONE'))
-            self.console.log(f'Classify error: {e}')
+            self.after(0, lambda: self.age_var.set('NONE'))
+            print(f'Classify error: {e}')
         finally:
             self.classification_loading = False
             self.after(0, self.update_generate_state)
@@ -659,11 +693,14 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.mask_source = None
             self.classification_result = None
             self.gender_result = None
+            self.age_result = None
             self.classification_loading = True
             self.image_class_var.set('NONE')
             self.gender_var.set('NONE')
+            self.age_var.set('NONE')
             self.image_class_menu.configure(state='disabled')
             self.gender_menu.configure(state='disabled')
+            self.age_menu.configure(state='disabled')
             self.save_btn.configure(state='disabled')
             self.generate_btn.configure(state='disabled')
             self.reload_mask_btn.configure(state='normal')
@@ -672,12 +709,12 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.reset_crop_btn.configure(state='normal')
             self.show_input()
             self.show_output()
-            self.console.log(f'Loaded {self.input_image_name}')
+            print(f'Loaded {self.input_image_name}')
             threading.Thread(target=self.classify_after_upload, args=(path,), daemon=True).start()
         except Exception as e:
-            self.console.log(f'Image Error: {e}')
+            print(f'Image Error: {e}')
 
-    def build_prompts(self, config, selected_class, selected_gender, apply_class_gender):
+    def build_prompts(self, config, selected_class, selected_gender, selected_age, apply_class_gender):
         positive_prompt = str(config.get('positive_prompt', '')).strip()
         negative_prompt = str(config.get('negative_prompt', '')).strip()
         if not apply_class_gender:
@@ -685,12 +722,19 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         class_prompts = {REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'), ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'), THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'), CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'), 'NONE': ('', '')}
         selected_class = str(selected_class).strip()
         selected_gender = str(selected_gender).strip()
+        selected_age = str(selected_age).strip()
         selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
         selected_gender = 'NONE' if selected_gender.upper() == 'NONE' else selected_gender.lower()
+        selected_age = 'NONE' if selected_age.upper() == 'NONE' else selected_age.lower()
         gender_append = GENDER_PROMPTS.get(selected_gender, '')
+        age_positive, age_negative = AGE_SD_PROMPTS.get(selected_age, ('', ''))
         class_positive, class_negative = class_prompts.get(selected_class, ('', ''))
         if gender_append:
             positive_prompt = f'{gender_append}, {positive_prompt}' if positive_prompt else gender_append
+        if age_positive:
+            positive_prompt = f'{age_positive}, {positive_prompt}' if positive_prompt else age_positive
+        if age_negative:
+            negative_prompt = f'{age_negative}, {negative_prompt}' if negative_prompt else age_negative
         if class_positive:
             positive_prompt = f'{class_positive} {positive_prompt}' if positive_prompt else class_positive
         if class_negative:
@@ -698,9 +742,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         return positive_prompt, negative_prompt
 
     def log_actual_prompts(self):
-        positive_prompt, negative_prompt = self.build_prompts(self.config, self.image_class_var.get(), self.gender_var.get(), True)
-        self.console.log(f'Positive Prompt: {positive_prompt}')
-        self.console.log(f'Negative Prompt: {negative_prompt}')
+        positive_prompt, negative_prompt = self.build_prompts(self.config, self.image_class_var.get(), self.gender_var.get(), self.age_var.get(), True)
+        print(f'Positive Prompt: {positive_prompt}')
+        print(f'Negative Prompt: {negative_prompt}')
 
     def prompt_selection_changed(self, choice):
         if self.processing or not self.apply_class_gender_var.get():
@@ -715,24 +759,24 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         if self.processing:
             return
         if self.model_loading or self.segmentation_loading:
-            self.console.log('Models loading')
+            print('Models loading')
             return
         if self.classification_loading:
-            self.console.log('Classification running')
+            print('Classification running')
             return
         if not self.models_ready:
-            self.console.log('Model not ready')
+            print('Model not ready')
             return
         if self.manual_segment_mode:
             self.disable_manual_segment_mode()
         if self.original_image is None:
-            self.console.log('No image')
+            print('No image')
             return
         if config_override is None:
             try:
                 self.sync_config()
             except Exception as e:
-                self.console.log(f'Configuration Error: {e}')
+                print(f'Configuration Error: {e}')
                 return
         self.generation_counter += 1
         generation_id = self.generation_counter
@@ -740,19 +784,20 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         mask = self.mask_image.copy() if self.has_valid_mask(self.mask_image) else None
         if mask is None:
             self.mask_source = None
-            self.console.log('No segment is present on the input preview • automatic segmentation will run')
+            print('No segment is present on the input preview • automatic segmentation will run')
         elif self.mask_source == 'manual':
-            self.console.log('Manual segment available • skipping automatic segmentation')
+            print('Manual segment available • skipping automatic segmentation')
         elif self.mask_source == 'auto':
-            self.console.log('Automatic segment available • reusing existing mask')
+            print('Automatic segment available • reusing existing mask')
         else:
-            self.console.log('Existing mask available • skipping automatic segmentation')
+            print('Existing mask available • skipping automatic segmentation')
         original_image = self.original_image.copy()
         crop_box = self.get_effective_crop_box()
         config = dict(config_override) if config_override is not None else dict(self.config)
         model_name = str(self.current_model_name or self.model_var.get())
         selected_class = self.image_class_var.get()
         selected_gender = self.gender_var.get()
+        selected_age = self.age_var.get()
         apply_class_gender = bool(self.apply_class_gender_var.get())
         full_image_output = bool(self.full_image_output_var.get())
         self.stop_requested.clear()
@@ -769,12 +814,13 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.model_menu.configure(state='disabled')
         self.image_class_menu.configure(state='disabled')
         self.gender_menu.configure(state='disabled')
+        self.age_menu.configure(state='disabled')
         self.ratio_menu.configure(state='disabled')
         self.start_time = time.time()
         self.show_output()
-        self.console.log(f'Generation {generation_id} start')
+        print(f'Generation {generation_id} start')
         self.after(0, self.update_generate_state)
-        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
+        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
         return classify_image(file_path)
@@ -786,23 +832,23 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             mask = mask.resize(base.size, Image.Resampling.NEAREST)
         return Image.composite(generated, base, mask).convert('RGB')
 
-    def worker(self, source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
+    def worker(self, source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
         try:
             steps = int(config.get('steps'))
             cfg = float(config.get('cfg'))
             strength = float(config.get('strength'))
             seed = int(config.get('seed', -1))
             cfg_rescale = float(config.get('cfg_rescale'))
-            positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, apply_class_gender)
+            positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, selected_age, apply_class_gender)
             if source is None:
-                self.console.log('Preprocessing...')
+                print('Preprocessing...')
                 source = self.preprocess_uploaded_image(original_image)
             else:
                 source = source.copy()
             if not self.has_valid_mask(mask):
                 self.segmentation_loading = True
                 self.after(0, self.update_crop_button_state)
-                self.console.log('No segment is present on the input preview • running automatic segmentation...')
+                print('No segment is present on the input preview • running automatic segmentation...')
                 mask = self.make_mask(source)
                 self.mask_image = mask.copy()
                 self.mask_source = 'auto'
@@ -810,7 +856,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 self.segmentation_loading = False
                 self.after(0, self.update_crop_button_state)
             elif mask.size != source.size:
-                self.console.log(f'Reusing {self.mask_source or "existing"} segment • resizing mask to processed input')
+                print(f'Reusing {self.mask_source or "existing"} segment • resizing mask to processed input')
                 mask = mask.resize(source.size, Image.Resampling.NEAREST)
                 self.mask_image = mask.copy()
             if np.asarray(mask, dtype=np.uint8).max() < 10:
@@ -825,7 +871,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             generator = torch.Generator(device=DEVICE).manual_seed(seed)
             if self.pipe is None:
                 raise RuntimeError('Selected diffusion model is not loaded.')
-            self.console.log(f'Seed {seed}')
+            print(f'Seed {seed}')
             self.restore_diffusion_model()
             scheduler_config = dict(self.pipe.scheduler.config)
 
@@ -839,7 +885,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 self.console.log(f'{percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}] | {model_name}', live=True)
                 return callback_kwargs
 
-            self.console.log(f'Generating {w}x{h}...')
+            print(f'Generating {w}x{h}...')
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
                 result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=cfg_rescale)
@@ -865,12 +911,12 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                     self.save()
 
             self.after(0, finish_generation)
-            self.console.log(f'Generation {generation_id} done • {self.time_text(elapsed)}')
+            print(f'Generation {generation_id} done • {self.time_text(elapsed)}')
         except GenerationStopped:
-            self.console.log(f'Generation {generation_id} stopped')
+            print(f'Generation {generation_id} stopped')
         except Exception as e:
-            self.console.log(f'Generation {generation_id} error: {e}')
-            self.after(0, lambda err=str(e): self.console.log(f'Generation Error: {err}'))
+            print(f'Generation {generation_id} error: {e}')
+            self.after(0, lambda err=str(e): print(f'Generation Error: {err}'))
         finally:
             self.processing = False
             self.stop_requested.clear()
@@ -883,6 +929,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.after(0, lambda: self.model_menu.configure(state='normal'))
             self.after(0, lambda: self.image_class_menu.configure(state='normal'))
             self.after(0, lambda: self.gender_menu.configure(state='normal'))
+            self.after(0, lambda: self.age_menu.configure(state='normal'))
             self.after(0, lambda: self.ratio_menu.configure(state='normal'))
 
     def time_text(self, seconds):
@@ -980,9 +1027,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             if suffix in ('.jpg', '.jpeg'):
                 output = output.convert('RGB')
             output.save(path)
-            self.console.log('Saved')
+            print('Saved')
         except Exception as e:
-            self.console.log(f'Save Error: {e}')
+            print(f'Save Error: {e}')
 
 if __name__ == '__main__':
     app = App()

@@ -12,8 +12,15 @@ I tested DiffuVision on an **RTX 2050 with 4 GB VRAM and 16 GB RAM**.
 
 ### 1. Download the Project
 
-Clone or download this repository, then open the project folder in **Visual Studio Code**.
+Clone or download this repository, then open the project folder in **Visual Studio**
 
+Install the Python Dependencies
+
+Open the **VS Code terminal** inside your DiffuVision project folder and run:
+
+```powershell
+py -m pip install -r requirements.txt
+```
 ### 2. Download the Required Models
 
 Download one or both of the following inpainting models:
@@ -114,6 +121,10 @@ The application will automatically download and install the required Python depe
 ## Notes & Updates
 
 This project is actively under development and does not currently have a standalone executable (`.exe`).
+
+* **Date Created:** September 1, 2026
+* **Status:** Work in Progress (WIP)
+one executable (`.exe`).
 
 * **Date Created:** September 1, 2026
 * **Status:** Work in Progress (WIP)

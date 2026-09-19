@@ -115,7 +115,7 @@ class CropImageMixin:
     def mark_crop_changed(self, message):
         self.reset_preview_state()
         self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log(message)
+        print(message)
         self.show_input()
         self.show_output()
 
@@ -271,7 +271,7 @@ class CropImageMixin:
             self.crop_box = box
         self.reset_preview_state()
         self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log('Crop changed')
+        print('Crop changed')
         self.show_input()
         self.show_output()
 
@@ -285,7 +285,7 @@ class CropImageMixin:
         self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
         self.reset_preview_state()
         self.refresh_crop_related_ui(allow_reload=True)
-        self.console.log('Crop reset')
+        print('Crop reset')
         self.show_input()
         self.show_output()
 
