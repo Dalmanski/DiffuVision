@@ -75,14 +75,17 @@ class ConfigManager:
         for line in self._read_env_lines():
             stripped = line.strip()
             if not stripped or stripped.startswith('#') or ':' not in stripped:
-                lines.append(line)
-                continue
-            key = stripped.split(':', 1)[0].strip()
+                if not stripped or stripped.startswith('#') or '=' not in stripped:
+                    lines.append(line)
+                    continue
+                key = stripped.split('=', 1)[0].strip()
+            else:
+                key = stripped.split(':', 1)[0].strip()
             if key in {'JSON_config', 'JSON_autosave'}:
                 if key == 'JSON_config':
-                    lines.append(f'JSON_config: "{values["JSON_config"]}"')
+                    lines.append(f'JSON_config="{values["JSON_config"]}"')
                 else:
-                    lines.append(f'JSON_autosave: {values["JSON_autosave"]}')
+                    lines.append(f'JSON_autosave={values["JSON_autosave"]}')
                 written.add(key)
             else:
                 lines.append(line)
@@ -90,7 +93,7 @@ class ConfigManager:
         for key, value in [('JSON_config', f'"{values["JSON_config"]}"'), ('JSON_autosave', values['JSON_autosave'])]:
             if key not in written:
                 prefix = 'JSON_config' if key == 'JSON_config' else 'JSON_autosave'
-                lines.append(f'{prefix}: {value}')
+                lines.append(f'{prefix}={value}')
 
         self.env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 

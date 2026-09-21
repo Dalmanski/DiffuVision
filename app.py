@@ -7,14 +7,12 @@ import numpy as np, torch
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
-from modules.imgclass import REAL, ANIME, THREE_D, CARTOON, classify_image
+from modules.img_classify import AGE_CLASS, GENDER_CLASS, IMAGE_CLASS, classify_image, predict_age, predict_gender
 from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
-from modules import cohort as cohort_module
-from modules.cohort import AGE_CLASSES, AGE_SD_PROMPTS
 from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin
 from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
@@ -30,9 +28,6 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
 RATIO_OPTIONS = ['FREE', '1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
-IMAGE_CLASSES = ['NONE', REAL, ANIME, THREE_D, CARTOON]
-GENDER_PROMPTS = {'male': 'male', 'female': 'female', 'NONE': ''}
-
 class GenerationStopped(Exception):
     pass
 
@@ -209,13 +204,13 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.class_gender_row.grid_columnconfigure(4, weight=0)
         self.class_gender_row.grid_columnconfigure(5, weight=1)
         ctk.CTkLabel(self.class_gender_row, text='IMAGE CLASS:', anchor='w', width=100).grid(row=0, column=0, sticky='w', padx=(2, 8))
-        self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASSES, command=self.prompt_selection_changed)
+        self.image_class_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.image_class_var, values=IMAGE_CLASS, command=self.prompt_selection_changed)
         self.image_class_menu.grid(row=0, column=1, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
-        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=['NONE', 'male', 'female'], command=self.prompt_selection_changed)
+        self.gender_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.gender_var, values=GENDER_CLASS, command=self.prompt_selection_changed)
         self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.class_gender_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
-        self.age_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.age_var, values=AGE_CLASSES, command=self.prompt_selection_changed)
+        self.age_menu = ctk.CTkOptionMenu(self.class_gender_row, variable=self.age_var, values=['NONE', *AGE_CLASS], command=self.prompt_selection_changed)
         self.age_menu.grid(row=0, column=5, sticky='ew', padx=(0, 2))
         ctk.CTkLabel(self.config_container, text='JSON CONFIG:', anchor='w', width=100).grid(row=3, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.config_container, fg_color='transparent')
@@ -582,8 +577,8 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def set_image_class_from_result(self, classification):
         best_class = str(classification.get('best_class', '')).strip()
         best_class = 'NONE' if best_class.upper() == 'NONE' else best_class.lower()
-        if best_class not in ('NONE', REAL, ANIME, THREE_D, CARTOON):
-            best_class = REAL
+        if best_class not in IMAGE_CLASS:
+            best_class = IMAGE_CLASS[1]
         self.image_class_var.set(best_class)
         self.image_class_menu.configure(state='normal')
         print(f'Class: {best_class.upper()}')
@@ -591,7 +586,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def set_gender_from_result(self, result):
         detected_gender = str(result[0]).strip()
         detected_gender = 'NONE' if detected_gender.upper() == 'NONE' else detected_gender.lower()
-        if detected_gender not in ('NONE', 'male', 'female'):
+        if detected_gender not in GENDER_CLASS:
             detected_gender = 'NONE'
         self.gender_var.set(detected_gender)
         self.gender_menu.configure(state='normal')
@@ -599,29 +594,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
 
     def set_age_from_result(self, result):
         detected_age = str(result[0]).strip().lower()
-        if detected_age not in ('child', 'teenager', 'young adult', 'adult', 'middle-aged', 'elderly'):
+        if detected_age not in ('NONE', *AGE_CLASS):
             detected_age = 'NONE'
         self.age_var.set(detected_age)
         self.age_menu.configure(state='normal')
         print(f'Age: {detected_age.upper()}')
-
-    def predict_gender_image(self, file_path):
-        model = getattr(cohort_module, 'model', None)
-        if model is None:
-            raise RuntimeError('cohort.py model is not available.')
-        try:
-            return cohort_module.predict_gender(file_path)
-        finally:
-            self.cleanup_gpu()
-
-    def predict_age_image(self, file_path):
-        model = getattr(cohort_module, 'model', None)
-        if model is None:
-            raise RuntimeError('cohort.py model is not available.')
-        try:
-            return cohort_module.predict_age(file_path)
-        finally:
-            self.cleanup_gpu()
 
     def prepare_uploaded_image(self, path):
         image = ImageOps.exif_transpose(load_image(path))
@@ -642,11 +619,12 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.classification_result = classification
             self.after(0, lambda result=classification: self.set_image_class_from_result(result))
             print('Classifying gender...')
-            gender_result = self.predict_gender_image(file_path)
+            gender_result = predict_gender(file_path)
             self.gender_result = gender_result
             self.after(0, lambda result=gender_result: self.set_gender_from_result(result))
             print('Classifying age...')
-            age_result = self.predict_age_image(file_path)
+            age_result = predict_age(file_path)
+            self.cleanup_gpu()
             self.age_result = age_result
             self.after(0, lambda result=age_result: self.set_age_from_result(result))
             print('Classification ready')
@@ -720,22 +698,27 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         negative_prompt = str(config.get('negative_prompt', '')).strip()
         if not apply_class_gender:
             return positive_prompt, negative_prompt
-        class_prompts = {REAL: (REAL, f'{ANIME}, {CARTOON}, {THREE_D}'), ANIME: (ANIME, f'{REAL}, {THREE_D}, {CARTOON}'), THREE_D: (THREE_D, f'{REAL}, {ANIME}, {CARTOON}'), CARTOON: (CARTOON, f'{REAL}, {ANIME}, {THREE_D}'), 'NONE': ('', '')}
+        class_prompts = {'NONE': ('', ''), **{class_name: (class_name, ', '.join(other for other in IMAGE_CLASS[1:] if other != class_name)) for class_name in IMAGE_CLASS[1:]}}
         selected_class = str(selected_class).strip()
         selected_gender = str(selected_gender).strip()
         selected_age = str(selected_age).strip()
         selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
         selected_gender = 'NONE' if selected_gender.upper() == 'NONE' else selected_gender.lower()
         selected_age = 'NONE' if selected_age.upper() == 'NONE' else selected_age.lower()
-        gender_append = GENDER_PROMPTS.get(selected_gender, '')
-        age_positive, age_negative = AGE_SD_PROMPTS.get(selected_age, ('', ''))
+        gender_append = '' if selected_gender == 'NONE' else selected_gender
+        age_append = '' if selected_age == 'NONE' else selected_age
         class_positive, class_negative = class_prompts.get(selected_class, ('', ''))
-        if gender_append:
-            positive_prompt = f'{gender_append}, {positive_prompt}' if positive_prompt else gender_append
-        if age_positive:
-            positive_prompt = f'{age_positive}, {positive_prompt}' if positive_prompt else age_positive
-        if age_negative:
-            negative_prompt = f'{age_negative}, {negative_prompt}' if negative_prompt else age_negative
+
+        person_prefix = ''
+        if gender_append and age_append:
+            person_prefix = f'{gender_append} {age_append}'
+        elif gender_append:
+            person_prefix = gender_append
+        elif age_append:
+            person_prefix = age_append
+
+        if person_prefix:
+            positive_prompt = f'{person_prefix}, {positive_prompt}' if positive_prompt else person_prefix
         if class_positive:
             positive_prompt = f'{class_positive} {positive_prompt}' if positive_prompt else class_positive
         if class_negative:

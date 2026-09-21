@@ -96,6 +96,12 @@ class OpenPoseRigidEditor(ctk.CTkToplevel):
         self.build_ui()
         self.bind("<Configure>",self.on_window_resize)
         self.after(100,self.initialize_window)
+        self.after(100,self.maximize)
+    def maximize(self):
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
     def build_rig(self):
         self.joints = {}
         for name,(x,y) in DEFAULT_POSE.items():
