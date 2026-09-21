@@ -315,7 +315,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             return
         try:
             payload = open_payload(CHILI_BIN)
-            self.generate(payload)
+            self.generate(config_override=dict(payload))
         except Exception:
             print('Just a chili. Please click the GENERATE button beside the chili.')
         return
@@ -833,7 +833,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 self.segmentation_loading = True
                 self.after(0, self.update_crop_button_state)
                 print('No segment is present on the input preview • running automatic segmentation...')
-                mask = self.make_mask(source)
+                mask = self.make_mask(source, config)
                 self.mask_image = mask.copy()
                 self.mask_source = 'auto'
                 self.after(0, self.show_input)

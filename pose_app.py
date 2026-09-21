@@ -15,7 +15,8 @@ from diffusers import StableDiffusionControlNetInpaintPipeline, StableDiffusionI
 from insightface.app import FaceAnalysis
 from controlnet_aux import OpenposeDetector
 from pose_editor import SkeletonEditor
-CHECKPOINT_PATH = r"Z:\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\DreamShaper_8_INPAINTING.inpainting.safetensors"
+from modules.sd_ideal import SDIdealImageMixin
+CHECKPOINT_PATH = r"Z:\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\lazymixRealAmateur_v40Inpainting.safetensors"
 CONTROLNET_MODEL = "lllyasviel/control_v11p_sd15_openpose"
 IP_ADAPTER_REPO = "h94/IP-Adapter"
 IP_ADAPTER_WEIGHTS = "ip-adapter-plus_sd15.safetensors"
@@ -47,7 +48,7 @@ class ConsoleRedirect:
             pass
     def isatty(self):
         return False
-class PoseChangerApp:
+class PoseChangerApp(SDIdealImageMixin):
     def __init__(self,root):
         self.root = root
         self.root.title("AI Pose Changer - DreamShaper Inpainting + OpenPose JSON Editor + Face Refinement")
@@ -78,6 +79,12 @@ class PoseChangerApp:
         self._build_ui()
         self._refresh_config_files()
         self._poll_console()
+        self.root.after(100,self.maximize)
+    def maximize(self):
+        try:
+            self.root.state("zoomed")
+        except Exception:
+            pass
     def _ensure_config_directory(self):
         os.makedirs(CONFIG_DIR,exist_ok=True)
     def _build_ui(self):
@@ -489,7 +496,8 @@ class PoseChangerApp:
         try:
             self.clear_memory()
             print("[1/8] Preparing source image...",flush=True)
-            source_raw = Image.open(self.source_path).convert("RGB")
+            with Image.open(self.source_path) as source_file:
+                source_raw = self.filter_sd_inpainting_image(source_file)
             source_img = self.prepare_image(source_raw,(WIDTH,HEIGHT))
             del source_raw
             skeleton_img = self.render_pose_json(pose_data,(WIDTH,HEIGHT)).convert("RGB")

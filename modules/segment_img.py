@@ -252,11 +252,12 @@ class SegmentImageMixin:
         print(f'Input ready {processed.width}x{processed.height}')
         return processed
 
-    def make_mask(self, image):
-        seg_pos_prompt = str(self.config.get('seg_pos_prompt', ''))
-        seg_neg_prompt = str(self.config.get('seg_neg_prompt', ''))
-        thickness = float(self.config.get('mask_thickness', 0.0))
-        blur = float(self.config.get('mask_blur', 0.0))
+    def make_mask(self, image, config=None):
+        config = self.config if config is None else config
+        seg_pos_prompt = str(config.get('seg_pos_prompt', ''))
+        seg_neg_prompt = str(config.get('seg_neg_prompt', ''))
+        thickness = float(config.get('mask_thickness', 0.0))
+        blur = float(config.get('mask_blur', 0.0))
         if thickness < 0:
             raise ValueError('mask_thickness cannot be negative.')
         if blur < 0:
