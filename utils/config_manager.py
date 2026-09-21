@@ -109,9 +109,8 @@ class ConfigManager:
             return str(path).replace('\\', '/')
 
     def refresh_config_files(self, base_dir):
-        data_dir = Path(base_dir) / 'data' / 'diffusion_config'
-        data_dir.mkdir(parents=True, exist_ok=True)
-        return sorted([p for p in data_dir.glob('*.json') if p.is_file()], key=lambda p: p.name.lower())
+        config_dir = Path(base_dir) / 'config' / 'sd'
+        return sorted([p for p in config_dir.rglob('*.json') if p.is_file()], key=lambda p: p.as_posix().lower())
 
     def load_config(self, path):
         path = Path(path)

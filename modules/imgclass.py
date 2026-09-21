@@ -1,8 +1,8 @@
 import os
 import socket
-from PIL import Image
 import torch
 from transformers import CLIPProcessor, CLIPModel
+from utils.image_loader import load_image
 
 REAL = 'photorealistic'
 ANIME = 'anime'
@@ -21,7 +21,7 @@ def _load_hf_model(loader, model_name, **kwargs):
     return loader.from_pretrained(model_name, **kwargs)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-MODEL_NAME = 'openai/clip-vit-base-patch32'
+MODEL_NAME = 'openai/clip-vit-base-patch16'
 processor = _load_hf_model(CLIPProcessor, MODEL_NAME, use_fast=False)
 model = _load_hf_model(CLIPModel, MODEL_NAME).to(device)
 model.eval()
@@ -34,7 +34,7 @@ CLASS_PROMPTS = {
 }
 
 def classify_image(file_path):
-    image = Image.open(file_path).convert('RGB')
+    image = load_image(file_path).convert('RGB')
     text = [prompt for prompts in CLASS_PROMPTS.values() for prompt in prompts]
     inputs = processor(text=text, images=image, return_tensors='pt', padding=True)
     inputs = {k: v.to(device) for k, v in inputs.items()}

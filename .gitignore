@@ -25,5 +25,5 @@ modules/weights/
 .DS_Store
 Thumbs.db
 
-data/diffusion_config/chili.json
-data/diffusion_config/PLS_DONT_DO_THIS_😭.json
+config/sd/chili
+config/sd/chili.json

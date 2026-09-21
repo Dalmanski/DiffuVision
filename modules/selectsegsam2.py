@@ -52,7 +52,7 @@ class SAM2Segmenter:
                         return parent
             except OSError:
                 continue
-        raise FileNotFoundError("SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing sam2.1_hiera_small.pt and sam2/configs/sam2.1/sam2.1_hiera_s.yaml.")
+        raise FileNotFoundError(f"SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing {SAM2_CHECKPOINT_NAME} and {SAM2_CONFIG_NAME}.")
 
     def load(self):
         if self.model is not None:

@@ -3,7 +3,7 @@
     "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
     "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress]",
     "seg_neg_prompt": "",
-    "steps": 26,
+    "steps": 30,
     "cfg": 3.6,
     "strength": 1,
     "seed": -1,

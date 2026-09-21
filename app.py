@@ -12,6 +12,7 @@ from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
+from utils.image_loader import load_image
 from modules import cohort as cohort_module
 from modules.cohort import AGE_CLASSES, AGE_SD_PROMPTS
 from modules.upscale_img import enhance
@@ -23,8 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent
 ctk.set_appearance_mode('system')
 ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
 MODEL_DIR = BASE_DIR / 'model'
-DEFAULT_JSON = BASE_DIR / 'data/diffusion_config/default.json'
-CHILI_BIN = BASE_DIR / 'data/diffusion_config/chili.bin'
+DEFAULT_JSON = BASE_DIR / 'config/sd/default.json'
+CHILI_BIN = BASE_DIR / 'config/sd/chili.bin'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
@@ -623,7 +624,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.cleanup_gpu()
 
     def prepare_uploaded_image(self, path):
-        image = ImageOps.exif_transpose(Image.open(path))
+        image = ImageOps.exif_transpose(load_image(path))
         has_alpha = image.mode in ('RGBA', 'LA') or 'transparency' in image.info
         if has_alpha:
             rgba = image.convert('RGBA')

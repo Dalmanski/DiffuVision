@@ -13,6 +13,8 @@ class CropImageMixin:
     def default_crop_box_for_ratio(self, choice):
         if self.original_image is None:
             return 0.0, 0.0, 1.0, 1.0
+        if choice.strip().upper() == 'FREE':
+            return 0.0, 0.0, 1.0, 1.0
         ratio = float(choice.split(':')[0]) / float(choice.split(':')[1])
         image_width, image_height = self.original_image.size
         image_aspect = image_width / image_height
@@ -225,6 +227,26 @@ class CropImageMixin:
         nx = (px - x) / width
         ny = (py - y) / height
         left, top, right, bottom = self.crop_box_start
+        if self.ratio_var.get().strip().upper() == 'FREE':
+            if self.active_crop_handle == 'nw':
+                box = (nx, ny, right, bottom)
+            elif self.active_crop_handle == 'ne':
+                box = (left, ny, nx, bottom)
+            elif self.active_crop_handle == 'sw':
+                box = (nx, top, right, ny)
+            elif self.active_crop_handle == 'se':
+                box = (left, top, nx, ny)
+            elif self.active_crop_handle == 'e':
+                box = (left, top, nx, bottom)
+            elif self.active_crop_handle == 'w':
+                box = (nx, top, right, bottom)
+            elif self.active_crop_handle == 's':
+                box = (left, top, right, ny)
+            else:
+                box = (left, ny, right, bottom)
+            self.crop_box = self.clamp_crop_box(box)
+            self.draw_crop_overlay()
+            return
         ratio = self.get_crop_ratio()
         normalized_ratio = ratio * self.original_image.height / self.original_image.width
         if self.active_crop_handle in ('nw', 'ne', 'sw', 'se'):
@@ -275,7 +297,11 @@ class CropImageMixin:
         self.active_crop_handle = None
         self.crop_box_start = None
         self.crop_move_start = None
-        box = self.clamp_fixed_crop_box(self.crop_box if self.crop_box is not None else (0.0, 0.0, 1.0, 1.0), self.get_crop_ratio())
+        box = self.crop_box if self.crop_box is not None else (0.0, 0.0, 1.0, 1.0)
+        if self.ratio_var.get().strip().upper() == 'FREE':
+            box = self.clamp_crop_box(box)
+        else:
+            box = self.clamp_fixed_crop_box(box, self.get_crop_ratio())
         if box[0] <= 0.005 and box[1] <= 0.005 and box[2] >= 0.995 and box[3] >= 0.995:
             self.crop_box = None
         else:

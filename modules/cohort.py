@@ -2,6 +2,7 @@ import os
 import socket
 import torch
 from transformers import CLIPProcessor, CLIPModel
+from utils.image_loader import load_image
 
 def _load_hf_model(loader, model_name, **kwargs):
     offline = os.environ.get("HF_HUB_OFFLINE", "").lower() in {"1", "true", "yes", "on"}
@@ -13,7 +14,7 @@ def _load_hf_model(loader, model_name, **kwargs):
     kwargs.setdefault("local_files_only", offline)
     return loader.from_pretrained(model_name, **kwargs)
 
-MODEL_NAME = "openai/clip-vit-base-patch32"
+MODEL_NAME = "openai/clip-vit-base-patch16"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 print("Loading CLIP model...")
@@ -42,8 +43,7 @@ AGE_SD_PROMPTS = {
     for age in AGE_CLASSES
 }
 def _predict(image_path, prompts):
-    from PIL import Image
-    image = Image.open(image_path).convert("RGB")
+    image = load_image(image_path).convert("RGB")
     inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True)
     inputs = {key: value.to(device) for key, value in inputs.items()}
     with torch.no_grad():
