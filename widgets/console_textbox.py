@@ -41,22 +41,55 @@ class ConsoleTextBox(ctk.CTkTextbox):
             pass
 
 class ConsoleRedirect:
-    def __init__(self, console):
+    def __init__(self, console, original=None):
         self.console = console
+        self.original = original
+        self.buffer = ""
 
     def write(self, text):
-        if not text or '[DEBUG]' in text:
-            return
-        if '\r' in text:
-            parts = text.split('\r')
-            if len(parts) > 1:
-                text = parts[-1]
-            self.console.log(text, live=True)
-        else:
-            self.console.log(text)
+        value = str(text)
+        if self.original is not None:
+            try:
+                self.original.write(value)
+            except Exception:
+                pass
+        if not value or '[DEBUG]' in value:
+            return len(value)
+        if '\r' in value:
+            parts = value.split('\r')
+            value = parts[-1]
+            self.console.log(value, live=True)
+            return len(str(text))
+        self.buffer += value
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            if line.strip():
+                try:
+                    self.console.log(line)
+                except Exception:
+                    pass
+        return len(value)
 
     def flush(self):
-        pass
+        if self.original is not None:
+            try:
+                self.original.flush()
+            except Exception:
+                pass
+        if self.buffer.strip():
+            try:
+                self.console.log(self.buffer.rstrip())
+            except Exception:
+                pass
+            self.buffer = ""
+
+    def isatty(self):
+        if self.original is None:
+            return False
+        try:
+            return self.original.isatty()
+        except Exception:
+            return False
 
 def create_redirects(console):
     return ConsoleRedirect(console), ConsoleRedirect(console)

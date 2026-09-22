@@ -1,12 +1,22 @@
 import json
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 
 class ConfigManager:
     def __init__(self, base_dir, default_json):
         self.base_dir = Path(base_dir)
         self.default_json = Path(default_json)
         self.env_path = self.base_dir / '.env'
+
+    @staticmethod
+    def load_env(base_dir):
+        load_dotenv(Path(base_dir) / '.env')
+
+    @staticmethod
+    def env_value(name, default):
+        return str(os.getenv(name) or default).strip().strip('"').strip("'")
 
     @staticmethod
     def _parse_env_value(value):

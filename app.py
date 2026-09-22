@@ -13,14 +13,15 @@ from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
+from utils.ctk_theme import configure_ctk_theme
 from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin
 from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
 from modules.crop_img import CropImageMixin
 
 BASE_DIR = Path(__file__).resolve().parent
-ctk.set_appearance_mode('system')
-ctk.set_default_color_theme(str(BASE_DIR / 'themes' / 'red.json'))
+ConfigManager.load_env(BASE_DIR)
+configure_ctk_theme()
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'config/sd/default.json'
 CHILI_BIN = BASE_DIR / 'config/sd/chili.bin'
@@ -32,7 +33,6 @@ class GenerationStopped(Exception):
     pass
 
 class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
-
     def __init__(self):
         super().__init__()
         self.title('DiffuVision - Inpainting with Stable Diffusion')
@@ -104,16 +104,10 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.stdout_redirect, self.stderr_redirect = create_redirects(self.console)
         sys.stdout = self.stdout_redirect
         sys.stderr = self.stderr_redirect
-        self.after(100, self.maximize)
+        self.after(100, lambda: self.state('zoomed'))
         self.load_startup_config()
         if self.model_var.get():
             threading.Thread(target=self.load_models, args=(self.model_var.get(),), daemon=True).start()
-
-    def maximize(self):
-        try:
-            self.state('zoomed')
-        except Exception:
-            pass
 
     def close_app(self):
         if self.closing:
@@ -356,6 +350,8 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         values = self.config_manager.read_env_file()
         global MODEL_OPTIONS, DEFAULT_MODEL
         MODEL_OPTIONS, DEFAULT_MODEL = self.config_manager.discover_models(MODEL_DIR)
+        if not MODEL_OPTIONS:
+            print(f'Missing inpainting models: no .safetensors files found in {MODEL_DIR} or configured SD_INPAINT_MODEL paths.')
         config_value = values.get('JSON_config', '').replace('\\', '/')
         autosave_value = values.get('JSON_autosave', None)
         if config_value:
@@ -971,7 +967,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             canvas_w = max(1, self.output_canvas.winfo_width())
             canvas_h = max(1, self.output_canvas.winfo_height())
             loading = self.processing or self.model_loading or self.segmentation_loading or self.classification_loading
-            label = 'Loading. Please wait... See on console' if loading else 'Output Image'
+            label = 'Loading...' if loading else 'Output Image'
             self.output_canvas.create_text(canvas_w // 2, canvas_h // 2, text=label, fill='#888888', font=('Segoe UI', 18))
             return
         canvas_w = max(1, self.output_canvas.winfo_width())
