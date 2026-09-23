@@ -19,6 +19,7 @@ omegaconf==2.3.1
 opencv_contrib_python==5.0.0.93
 opencv_python==5.0.0.93
 pandas==3.0.6
+peft==0.17.0
 Pillow==12.3.0
 pycocotools==2.0.11
 python-dotenv==1.2.3

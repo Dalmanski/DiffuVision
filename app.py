@@ -99,6 +99,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.cfg_path = DEFAULT_JSON
         self.config = {}
         self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
+        self.loaded_loras = []
         self.recommended_ratio_sizes = RECOMMENDED_RATIO_SIZES
         self.show_orig = False
         self.load_env()
@@ -210,8 +211,15 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         ctk.CTkLabel(self.cfg_box, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=1, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.model_menu = ctk.CTkOptionMenu(self.cfg_box, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
         self.model_menu.grid(row=1, column=1, sticky='ew', padx=2, pady=(0, 8))
+        ctk.CTkLabel(self.cfg_box, text='LoRA (SD INPAINTING):', anchor='w', width=100).grid(row=2, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
+        self.lora_menu = ctk.CTkButton(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w')
+        self.lora_menu.grid(row=2, column=1, sticky='ew', padx=2, pady=(0, 4))
+        self.lora_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
+        self.lora_panel.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
+        self.lora_panel.grid_remove()
+        self.refresh_lora_menu()
         self.meta_row = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.meta_row.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.meta_row.grid(row=4, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.meta_row.grid_columnconfigure(0, weight=0)
         self.meta_row.grid_columnconfigure(1, weight=1)
         self.meta_row.grid_columnconfigure(2, weight=0)
@@ -227,9 +235,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         ctk.CTkLabel(self.meta_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
         self.age_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.age, values=['NONE', *AGE_CLASS], command=self.prompt_sel_changed)
         self.age_menu.grid(row=0, column=5, sticky='ew', padx=(0, 2))
-        ctk.CTkLabel(self.cfg_box, text='JSON CONFIG:', anchor='w', width=100).grid(row=3, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
+        ctk.CTkLabel(self.cfg_box, text='JSON CONFIG:', anchor='w', width=100).grid(row=5, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.config_row.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
+        self.config_row.grid(row=5, column=1, sticky='ew', padx=2, pady=(0, 8))
         self.config_row.grid_columnconfigure(0, weight=1)
         self.config_row.grid_columnconfigure(1, weight=0)
         self.cfg_menu = ctk.CTkOptionMenu(self.config_row, values=[], command=self.config_changed)
@@ -237,10 +245,10 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.autosave_btn = ctk.CTkButton(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.json = JSONTextBox(self.cfg_box, height=220, font_size=12, fg_color='#000000')
-        self.json.grid(row=4, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.json.grid(row=6, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.json.set_change_callback(self.json_changed)
         self.out_opts = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.out_opts.grid(row=5, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
+        self.out_opts.grid(row=7, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.out_opts.grid_columnconfigure(0, weight=1)
         self.out_opts.grid_columnconfigure(1, weight=1)
         self.esrgan_cb = ctk.CTkCheckBox(self.out_opts, text='Enhance output image', variable=self.esrgan_out)
@@ -323,6 +331,42 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.cfg_box.grid_remove()
             self.cfg_btn.configure(fg_color=ctk.ThemeManager.theme['CTkButton']['fg_color'], hover_color=ctk.ThemeManager.theme['CTkButton']['hover_color'])
 
+    def refresh_lora_menu(self):
+        if not hasattr(self, 'lora_panel'):
+            return
+        for widget in self.lora_panel.winfo_children():
+            widget.destroy()
+        self.lora_vars = {}
+        for row, path in enumerate(self.lora_paths):
+            variable = ctk.BooleanVar(value=path in self.selected_loras)
+            self.lora_vars[path] = variable
+            ctk.CTkCheckBox(self.lora_panel, text=Path(path).stem, variable=variable, command=lambda path=path, variable=variable: self.lora_changed(path, variable)).grid(row=row, column=0, sticky='w', padx=4, pady=2)
+        selected = sum(variable.get() for variable in self.lora_vars.values())
+        self.lora_menu.configure(text=f'{selected} LoRA selected [Select]')
+
+    def toggle_lora_menu(self):
+        if self.lora_panel.winfo_ismapped():
+            self.lora_panel.grid_remove()
+        else:
+            self.lora_panel.grid()
+
+    def lora_changed(self, path, variable):
+        if variable.get():
+            self.selected_loras.add(path)
+        else:
+            self.selected_loras.discard(path)
+        self.apply_lora_selection()
+        self.refresh_lora_menu()
+
+    def apply_lora_selection(self):
+        if self.pipe is None or not self.loaded_loras:
+            return
+        names = [name for path, name in self.loaded_loras if path in self.selected_loras]
+        if names:
+            self.pipe.set_adapters(names)
+        else:
+            self.pipe.disable_lora()
+
     def update_gen_state(self):
         if self.processing:
             self.generate_btn.configure(state='normal', text='STOP GENERATING', command=self.stop_generation)
@@ -375,24 +419,12 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.update_manual_segment_buttons()
 
     def load_env(self):
-        values = self.config_manager.read_env_file()
         global MODEL_OPTIONS, DEFAULT_MODEL
-        MODEL_OPTIONS, DEFAULT_MODEL = self.config_manager.discover_models(MODEL_DIR)
+        MODEL_OPTIONS, DEFAULT_MODEL, self.lora_paths, self.start_cfg, autosave = self.config_manager.read_runtime_settings(MODEL_DIR)
+        self.selected_loras = set(self.lora_paths)
         if not MODEL_OPTIONS:
             print(f'Missing inpainting models: no .safetensors files found in {MODEL_DIR} or configured SD_INPAINT_MODEL paths.')
-        config_value = values.get('JSON_config', '').replace('\\', '/')
-        autosave_value = values.get('JSON_autosave', None)
-        if config_value:
-            candidate = Path(config_value)
-            if not candidate.is_absolute():
-                candidate = BASE_DIR / candidate
-            self.start_cfg = candidate
-        else:
-            self.start_cfg = DEFAULT_JSON
-        if autosave_value is None:
-            self.autosave.set(True)
-        else:
-            self.autosave.set(autosave_value.strip().lower() in ('1', 'true', 'yes', 'on'))
+        self.autosave.set(autosave)
 
     def write_env(self):
         self.config_manager.write_env_settings(self.cfg_path, self.autosave.get())
@@ -571,6 +603,21 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
             print(f'Loading {model_name}')
             pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
+            lora_paths = self.config_manager.discover_loras()
+            loaded_loras = []
+            for index, lora_path in enumerate(lora_paths):
+                lora_name = f'lora_{index}'
+                try:
+                    pipe.load_lora_weights(lora_path, adapter_name=lora_name)
+                    loaded_loras.append((lora_path, lora_name))
+                    print(f'LoRA loaded: {lora_path}')
+                except Exception as error:
+                    print(f'LoRA not loaded: {lora_path} ({error})')
+            names = [name for path, name in loaded_loras if path in self.selected_loras]
+            if names:
+                pipe.set_adapters(names)
+            elif loaded_loras:
+                pipe.disable_lora()
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(DEVICE)
             pipe.set_progress_bar_config(disable=True)
@@ -581,12 +628,15 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 except Exception:
                     pass
             self.pipe = pipe
+            self.lora_paths = lora_paths
+            self.loaded_loras = loaded_loras
             self.model_name = model_name
             self.dtype = dtype
             self.cleanup_gpu()
             self.models_ready = True
             self.model_loading = False
             print(f'{model_name} ready • {DEVICE.upper()}')
+            self.after(0, self.refresh_lora_menu)
             self.after(0, lambda: self.model_menu.configure(state='normal'))
             self.after(0, self.update_gen_state)
         except Exception as e:

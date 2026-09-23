@@ -4,6 +4,7 @@ import customtkinter as ctk
 from dotenv import dotenv_values, set_key
 from utils.ctk_theme import configure_ctk_theme
 from utils.centwin import center_window
+from utils.config_manager import ConfigManager
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -134,13 +135,9 @@ class SettingsPopup(ctk.CTkToplevel):
         text = value.strip()
         if text.lower() in ("true", "false"):
             return "bool", text.title()
-        if text.startswith("[") and text.endswith("]"):
-            try:
-                parsed = json.loads(text)
-                if isinstance(parsed, list):
-                    return "list", parsed
-            except json.JSONDecodeError:
-                pass
+        parsed = ConfigManager.parse_json_list(text)
+        if parsed is not None:
+            return "list", parsed
         return "text", value
 
     def load_env_files(self):

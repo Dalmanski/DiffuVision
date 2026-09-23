@@ -19,6 +19,20 @@ class ConfigManager:
         return str(os.getenv(name) or default).strip().strip('"').strip("'")
 
     @staticmethod
+    def parse_json_list(value):
+        text = str(value or '').strip().strip('"').strip("'")
+        if not (text.startswith('[') and text.endswith(']')):
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                parsed = json.loads(text.replace('\\', '\\\\'))
+            except json.JSONDecodeError:
+                return None
+        return parsed if isinstance(parsed, list) else None
+
+    @staticmethod
     def _parse_env_value(value):
         return value.strip().strip('"').strip("'")
 
@@ -47,16 +61,7 @@ class ConfigManager:
 
     def discover_models(self, model_dir):
         env_value = self.read_env_file().get('SD_INPAINT_MODEL', '').strip()
-        paths = []
-        if env_value:
-            try:
-                parsed = json.loads(env_value)
-                if isinstance(parsed, list):
-                    paths.extend(parsed)
-                elif isinstance(parsed, str):
-                    paths.append(parsed)
-            except json.JSONDecodeError:
-                paths.append(env_value)
+        paths = self.parse_json_list(env_value) or ([env_value] if env_value else [])
         if model_dir.exists():
             paths.extend(str(path) for path in sorted(model_dir.glob('*.safetensors'), key=lambda item: item.name.lower()))
         models = {}
@@ -74,6 +79,41 @@ class ConfigManager:
             seen.add(key)
             models[path.stem] = str(path)
         return models, next(iter(models), '')
+
+    def discover_loras(self):
+        env_value = self.read_env_file().get('SD_15_LoRA_MODEL', '').strip()
+        if not env_value:
+            return []
+        paths = self.parse_json_list(env_value) or [env_value]
+        resolved = []
+        seen = set()
+        for raw_path in paths:
+            if not raw_path:
+                continue
+            path = Path(str(raw_path).strip())
+            if not path.is_absolute():
+                path = self.base_dir / path
+            path = path.resolve(strict=False)
+            key = str(path).lower()
+            if key not in seen and path.exists() and path.suffix.lower() in {'.safetensors', '.bin'}:
+                seen.add(key)
+                resolved.append(str(path))
+        return resolved
+
+    def read_runtime_settings(self, model_dir):
+        values = self.read_env_file()
+        models, default_model = self.discover_models(model_dir)
+        loras = self.discover_loras()
+        config_value = values.get('JSON_config', '').replace('\\', '/')
+        if config_value:
+            start_config = Path(config_value)
+            if not start_config.is_absolute():
+                start_config = self.base_dir / start_config
+        else:
+            start_config = self.default_json
+        autosave_value = values.get('JSON_autosave')
+        autosave = True if autosave_value is None else autosave_value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return models, default_model, loras, start_config, autosave
 
     def write_env_settings(self, active_config_path, autosave_enabled):
         values = self.read_env_file()
