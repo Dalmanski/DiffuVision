@@ -123,13 +123,13 @@ class CropImageMixin:
 
     def mark_crop_changed(self, message):
         self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
+        self.refresh_crop_ui(allow_reload=True)
         print(message)
         self.show_input()
         self.show_output()
 
     def ratio_changed(self, choice):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+        if self.processing or self.model_loading or self.seg_loading or self.class_loading:
             return
         if self.original_image is None:
             return
@@ -156,10 +156,10 @@ class CropImageMixin:
         return {'nw': (x1, y1), 'n': (xm, y1), 'ne': (x2, y1), 'w': (x1, ym), 'e': (x2, ym), 'sw': (x1, y2), 's': (xm, y2), 'se': (x2, y2)}
 
     def get_crop_handle(self, event):
-        if self.input_display_info is None:
+        if self.input_box is None:
             return None
         size = self.crop_handle_size() + 5
-        for handle, point in self.crop_handle_points(self.input_display_info).items():
+        for handle, point in self.crop_handle_points(self.input_box).items():
             if abs(event.x - point[0]) <= size and abs(event.y - point[1]) <= size:
                 return handle
         return None
@@ -176,18 +176,18 @@ class CropImageMixin:
         return x2 - button_width, y1, x2, y1 + button_height
 
     def get_crop_move_button(self, event):
-        if self.input_display_info is None:
+        if self.input_box is None:
             return False
-        x1, y1, x2, y2 = self.crop_move_button_box(self.input_display_info)
+        x1, y1, x2, y2 = self.crop_move_button_box(self.input_box)
         return x1 <= event.x <= x2 and y1 <= event.y <= y2
 
     def start_crop(self, event):
-        if self.manual_segment_mode:
+        if self.manual_mode:
             self.select_manual_segment(event)
             return
-        if self.original_image is None or self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+        if self.original_image is None or self.processing or self.model_loading or self.seg_loading or self.class_loading:
             return
-        if self.input_display_info is None:
+        if self.input_box is None:
             return
         if self.get_crop_move_button(event):
             self.active_crop_handle = 'move'
@@ -204,12 +204,12 @@ class CropImageMixin:
         self.cropping = True
 
     def update_crop_selection(self, event):
-        if self.manual_segment_mode:
+        if self.manual_mode:
             return
-        if not self.cropping or self.input_display_info is None or self.crop_box_start is None:
+        if not self.cropping or self.input_box is None or self.crop_box_start is None:
             return
         if self.active_crop_handle == 'move':
-            x, y, width, height = self.input_display_info
+            x, y, width, height = self.input_box
             left, top, right, bottom = self.crop_box_start
             start_x, start_y = self.crop_move_start
             crop_width = right - left
@@ -221,7 +221,7 @@ class CropImageMixin:
             self.crop_box = (new_left, new_top, new_left + crop_width, new_top + crop_height)
             self.draw_crop_overlay()
             return
-        x, y, width, height = self.input_display_info
+        x, y, width, height = self.input_box
         px = max(x, min(x + width, event.x))
         py = max(y, min(y + height, event.y))
         nx = (px - x) / width
@@ -289,7 +289,7 @@ class CropImageMixin:
         self.draw_crop_overlay()
 
     def finish_crop(self, event):
-        if self.manual_segment_mode:
+        if self.manual_mode:
             return
         if not self.cropping:
             return
@@ -307,13 +307,13 @@ class CropImageMixin:
         else:
             self.crop_box = box
         self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
+        self.refresh_crop_ui(allow_reload=True)
         print('Crop changed')
         self.show_input()
         self.show_output()
 
     def reset_crop(self):
-        if self.processing or self.model_loading or self.segmentation_loading or self.classification_loading:
+        if self.processing or self.model_loading or self.seg_loading or self.class_loading:
             return
         if self.original_image is None:
             return
@@ -321,26 +321,26 @@ class CropImageMixin:
             return
         self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
         self.reset_preview_state()
-        self.refresh_crop_related_ui(allow_reload=True)
+        self.refresh_crop_ui(allow_reload=True)
         print('Crop reset')
         self.show_input()
         self.show_output()
 
     def draw_crop_overlay(self):
-        if self.input_display_info is None:
+        if self.input_box is None:
             return
-        self.input_canvas.delete('crop_overlay')
-        x, y, width, height = self.input_display_info
+        self.in_canvas.delete('crop_overlay')
+        x, y, width, height = self.input_box
         left, top, right, bottom = self.get_effective_crop_box()
         x1 = x + left * width
         y1 = y + top * height
         x2 = x + right * width
         y2 = y + bottom * height
-        self.input_canvas.create_rectangle(x1, y1, x2, y2, outline='#000000', width=3, dash=(8, 5), tags='crop_overlay')
-        move_x1, move_y1, move_x2, move_y2 = self.crop_move_button_box(self.input_display_info)
-        self.input_canvas.create_rectangle(move_x1, move_y1, move_x2, move_y2, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')
-        self.input_canvas.create_text((move_x1 + move_x2) / 2.0, (move_y1 + move_y2) / 2.0, text='✥', fill='#000000', font=('Segoe UI Symbol', 15), tags='crop_overlay')
+        self.in_canvas.create_rectangle(x1, y1, x2, y2, outline='#000000', width=3, dash=(8, 5), tags='crop_overlay')
+        move_x1, move_y1, move_x2, move_y2 = self.crop_move_button_box(self.input_box)
+        self.in_canvas.create_rectangle(move_x1, move_y1, move_x2, move_y2, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')
+        self.in_canvas.create_text((move_x1 + move_x2) / 2.0, (move_y1 + move_y2) / 2.0, text='✥', fill='#000000', font=('Segoe UI Symbol', 15), tags='crop_overlay')
         handle_size = self.crop_handle_size()
-        for point in self.crop_handle_points(self.input_display_info).values():
+        for point in self.crop_handle_points(self.input_box).values():
             hx, hy = point
-            self.input_canvas.create_rectangle(hx - handle_size, hy - handle_size, hx + handle_size, hy + handle_size, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')
+            self.in_canvas.create_rectangle(hx - handle_size, hy - handle_size, hx + handle_size, hy + handle_size, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')

@@ -24,9 +24,9 @@ def _load_hf_model(loader, model_name, **kwargs):
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAM2_REPO_DIR = os.path.join(SCRIPT_DIR, "sam2_repo")
-SAM2_CHECKPOINT_NAME = "sam2.1_hiera_small.pt"
+SAM2_CHECKPOINT_NAME = "sam2.1_hiera_tiny.pt"
 SAM2_CHECKPOINT_PATH = os.path.join("checkpoints", SAM2_CHECKPOINT_NAME)
-SAM2_CONFIG_NAME = "sam2.1_hiera_s.yaml"
+SAM2_CONFIG_NAME = "sam2.1_hiera_t.yaml"
 if SAM2_REPO_DIR not in sys.path:
     sys.path.insert(0, SAM2_REPO_DIR)
 

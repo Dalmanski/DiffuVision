@@ -20,8 +20,11 @@ class SAM2Segmenter:
         self.image_np = None
         self.current_mask = None
         self.accumulated_mask = None
+        self.segments = []
         self.prompt_points = []
         self.prompt_labels = []
+        self.last_masks = None
+        self.last_scores = None
 
     def find_repo_dir(self):
         if self.repo_dir is not None and (self.repo_dir / SAM2_CHECKPOINT_PATH).is_file() and (self.repo_dir / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
@@ -78,8 +81,11 @@ class SAM2Segmenter:
         self.image_np = np.array(image)
         self.current_mask = None
         self.accumulated_mask = np.zeros((image.height, image.width), dtype=bool)
+        self.segments = []
         self.prompt_points = []
         self.prompt_labels = []
+        self.last_masks = None
+        self.last_scores = None
         if self.predictor is None:
             self.load()
         self.predictor.set_image(self.image_np)
@@ -107,7 +113,7 @@ class SAM2Segmenter:
         self.prompt_labels.clear()
         self.current_mask = None
 
-    def predict(self):
+    def predict(self, prefer_smallest=True, mask_index=None):
         if self.predictor is None:
             raise RuntimeError("SAM 2 model is not loaded.")
         if self.image is None:
@@ -119,8 +125,17 @@ class SAM2Segmenter:
         with torch.inference_mode():
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 masks, scores, _ = self.predictor.predict(point_coords=points, point_labels=labels, multimask_output=True)
-        best_index = int(np.argmax(scores))
-        self.current_mask = masks[best_index].astype(bool)
+        masks = masks.astype(bool)
+        self.last_masks = masks
+        self.last_scores = scores
+        if mask_index is not None:
+            best_index = int(mask_index)
+        elif prefer_smallest:
+            areas = masks.reshape(masks.shape[0], -1).sum(axis=1)
+            best_index = int(np.argmin(areas))
+        else:
+            best_index = int(np.argmax(scores))
+        self.current_mask = masks[best_index]
         return self.current_mask, float(scores[best_index])
 
     def append_segment(self):
@@ -128,15 +143,26 @@ class SAM2Segmenter:
             raise RuntimeError("No current segment is available.")
         if self.accumulated_mask is None:
             self.accumulated_mask = np.zeros_like(self.current_mask, dtype=bool)
-        self.accumulated_mask |= self.current_mask
         appended_mask = self.current_mask.copy()
+        self.segments.append(appended_mask)
+        self.accumulated_mask |= appended_mask
         self.current_mask = None
         self.clear_points()
         return appended_mask
 
-    def append_point_segment(self, x, y, positive=True):
+    def remove_segment_at(self, x, y):
+        for index in range(len(self.segments) - 1, -1, -1):
+            if self.segments[index][int(y), int(x)]:
+                self.segments.pop(index)
+                self.accumulated_mask = np.zeros_like(self.accumulated_mask, dtype=bool)
+                for segment in self.segments:
+                    self.accumulated_mask |= segment
+                return True
+        return False
+
+    def append_point_segment(self, x, y, positive=True, prefer_smallest=True, mask_index=None):
         self.add_point(x, y, positive)
-        self.predict()
+        self.predict(prefer_smallest=prefer_smallest, mask_index=mask_index)
         self.append_segment()
         return self.get_accumulated_mask()
 
@@ -157,8 +183,8 @@ class SAM2Segmenter:
             raw_mask = raw_mask.resize(tuple(target_size), Image.Resampling.NEAREST)
         return raw_mask.copy()
 
-    def select_point(self, x, y, positive=True, target_size=None, crop_box=None, original_size=None):
-        self.append_point_segment(x, y, positive)
+    def select_point(self, x, y, positive=True, target_size=None, crop_box=None, original_size=None, prefer_smallest=True, mask_index=None):
+        self.append_point_segment(x, y, positive, prefer_smallest=prefer_smallest, mask_index=mask_index)
         return self.build_inpainting_mask(target_size=target_size, crop_box=crop_box, original_size=original_size)
 
     def clear_all_segments(self):
@@ -170,6 +196,7 @@ class SAM2Segmenter:
             self.accumulated_mask = None
         else:
             self.accumulated_mask = np.zeros((self.image.height, self.image.width), dtype=bool)
+        self.segments = []
         self.current_mask = None
         self.clear_points()
 
@@ -178,6 +205,11 @@ class SAM2Segmenter:
 
     def get_accumulated_mask(self):
         return None if self.accumulated_mask is None else self.accumulated_mask.copy()
+
+    def get_last_candidates(self):
+        if self.last_masks is None:
+            return None, None
+        return self.last_masks.copy(), self.last_scores.copy()
 
     def get_prompt_points(self):
         return list(self.prompt_points), list(self.prompt_labels)
@@ -216,8 +248,11 @@ class SAM2Segmenter:
         self.image_np = None
         self.current_mask = None
         self.accumulated_mask = None
+        self.segments = []
         self.prompt_points = []
         self.prompt_labels = []
+        self.last_masks = None
+        self.last_scores = None
         self.clear_cache()
 
     def clear_cache(self):

@@ -41,7 +41,7 @@ class SDIdealImageMixin:
         return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
     def prepare_sd_image(self, image):
-        if not self.recommended_sd_var.get():
+        if not self.sd_rec.get():
             return ImageOps.exif_transpose(image).convert('RGB')
         return self.resize_image(self.filter_sd_inpainting_image(image))
 
@@ -87,11 +87,11 @@ class SDIdealImageMixin:
         width = max(8, int(width))
         height = max(8, int(height))
         ratio = self.ratio_var.get().strip().upper()
-        if self.recommended_sd_var.get() and ratio in RECOMMENDED_RATIO_SIZES:
+        if self.sd_rec.get() and ratio in RECOMMENDED_RATIO_SIZES:
             new_width, new_height = RECOMMENDED_RATIO_SIZES[ratio]
-        elif self.recommended_sd_var.get() and ratio == 'FREE':
+        elif self.sd_rec.get() and ratio == 'FREE':
             new_width, new_height = self.recommended_size_for_ratio(width / height)
-        elif self.recommended_sd_var.get():
+        elif self.sd_rec.get():
             longest = max(width, height)
             scale = min(1.0, MAX_SIDE / longest)
             new_width = max(8, int(round(width * scale / 8)) * 8)

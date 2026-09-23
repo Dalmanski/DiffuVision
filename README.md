@@ -2,6 +2,10 @@
 
 > **Work in Progress (WIP)** — This application is not yet available as a standalone `.exe`.
 
+## Disclaimer
+
+**Use DiffuVision responsibly.** The developer is not responsible for misuse of this software or for inappropriate, harmful, or unlawful content created with it. Users are responsible for complying with applicable laws, obtaining necessary permissions, and following the licenses of any third-party models or software.
+
 ## Setup
 
 To run **DiffuVision**, execute the Python application using **Visual Studio Code** or your preferred terminal.
@@ -12,32 +16,49 @@ I tested DiffuVision on an **RTX 2050 with 4 GB VRAM and 16 GB RAM**.
 
 ### 1. Download the Project
 
-Clone or download this repository, then open the project folder in **Visual Studio**
+Download and install Python 3.12:
 
-Install the Python Dependencies
+https://www.python.org/downloads/windows/
+
+During installation, enable:
+
+```text
+Add Python to PATH
+```
+
+Then open a new VS Code terminal:
+
+```powershell
+python --version
+```
+
+If needed:
+
+```text
+Ctrl+Shift+P → Python: Select Interpreter → Python 3.12
+```
+
+Clone or download this repository, then open the project folder in **Visual Studio Code**.
+
+### Install the Python Dependencies
 
 Open the **VS Code terminal** inside your DiffuVision project folder and run:
 
 ```powershell
 py -m pip install -r requirements.txt
 ```
-### 2. Download the Required Models
 
-Download one or both of the following inpainting models:
+## 2. Download the Required Models
 
-* **DreamShaper 8 Inpainting**
+Download the following inpainting models.
 
-  * **Link:** [DreamShaper_8_INPAINTING.inpainting.safetensors](https://huggingface.co/Lykon/DreamShaper/blob/main/DreamShaper_8_INPAINTING.inpainting.safetensors)
-  * **Best for:** General-purpose use, including real-life and anime images
+### DreamShaper 8 Inpainting
 
-**OR**
+* **File:** `DreamShaper_8_INPAINTING.inpainting.safetensors`
+* **Link:** https://huggingface.co/Lykon/DreamShaper/blob/main/DreamShaper_8_INPAINTING.inpainting.safetensors
+* **Best for:** General-purpose use, including real-life and anime images.
 
-* **LazyMix v4.0 Inpainting**
-
-  * **Link:** [lazymixRealAmateur_v40Inpainting.safetensors](https://huggingface.co/TheImposterImposters/LazyMix-v4.0-inpainting/blob/main/lazymixRealAmateur_v40Inpainting.safetensors)
-  * **Best for:** Photorealistic and real-life images. It can also work with anime images.
-
-### 3. Place the Models
+## 3. Place the Models
 
 After downloading the models, place them in:
 
@@ -73,7 +94,7 @@ SD_INPAINT_MODEL='["YOUR FULL PATH TO DreamShaper_8_INPAINTING.inpainting.safete
 
 Replace the placeholder path with the actual location of the model file on your computer.
 
-### 4. Download and Install SAM 2.1
+## 4. Download and Install SAM 2.1
 
 Open the **VS Code terminal** inside your DiffuVision project folder and run these commands **one at a time**:
 
@@ -108,7 +129,7 @@ DiffuVision/
 
 > **Note:** The SAM 2.1 repository does not include the model weights when cloned. The last command downloads the `sam2.1_hiera_small.pt` checkpoint separately.
 
-### 5. Run the Application
+## 5. Run the Application
 
 Open the project in **Visual Studio Code** and run:
 
@@ -116,15 +137,11 @@ Open the project in **Visual Studio Code** and run:
 py app.py
 ```
 
-The application will automatically download and install the required Python dependencies when necessary.
+The application may automatically download and install required components or model files when necessary, depending on the current project configuration.
 
 ## Notes & Updates
 
 This project is actively under development and does not currently have a standalone executable (`.exe`).
-
-* **Date Created:** September 1, 2026
-* **Status:** Work in Progress (WIP)
-one executable (`.exe`).
 
 * **Date Created:** September 1, 2026
 * **Status:** Work in Progress (WIP)
