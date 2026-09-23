@@ -1,4 +1,4 @@
-import os, sys, json, time, threading, gc
+import os, sys, json, time, threading, gc, subprocess
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
@@ -8,6 +8,8 @@ import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
 from modules.img_classify import AGE_CLASS, GENDER_CLASS, IMAGE_CLASS, classify_image, predict_age, predict_gender
+from modules.upscale_img import enhance
+from modules.segment_img import SegmentImageMixin
 from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from utils.config_manager import ConfigManager
@@ -15,9 +17,7 @@ from utils.access_gate import open_payload
 from utils.image_loader import load_image
 from utils.ctk_theme import configure_ctk_theme
 from utils.crop_img import CropImageMixin
-from modules.upscale_img import enhance
-from modules.segment_img import SegmentImageMixin
-from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
+from utils.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
 
 BASE_DIR = Path(__file__).resolve().parent
 ConfigManager.load_env(BASE_DIR)
@@ -131,6 +131,23 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.destroy()
         finally:
             os._exit(0)
+
+    def open_settings(self):
+        from settings import open_settings_popup
+        popup = open_settings_popup(self)
+        popup.on_save = self.reload_after_settings
+
+    def reload_after_settings(self):
+        ConfigManager.load_env(BASE_DIR)
+        configure_ctk_theme()
+        self.after(50, self.restart_app)
+
+    def restart_app(self):
+        exe = str(Path(sys.executable).resolve())
+        app_path = str(Path(__file__).resolve())
+        subprocess.Popen([exe, app_path, *sys.argv[1:]], cwd=str(BASE_DIR))
+        self.quit()
+        self.destroy()
 
     def ui(self):
         self.grid_rowconfigure(0, weight=1)
@@ -263,12 +280,15 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.save_clear_row.grid_columnconfigure(0, weight=1)
         self.save_clear_row.grid_columnconfigure(1, weight=0)
         self.save_clear_row.grid_columnconfigure(2, weight=0)
+        self.save_clear_row.grid_columnconfigure(3, weight=0)
         self.save_btn = ctk.CTkButton(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
         self.cf_btn = ctk.CTkButton(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
         self.cf_btn.grid(row=0, column=1, sticky='e', padx=5)
         self.clear_btn = ctk.CTkButton(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
+        self.settings_btn = ctk.CTkButton(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46, fg_color='#21262D', hover_color='#30363D', font=('Segoe UI Emoji', 18))
+        self.settings_btn.grid(row=0, column=3, sticky='e', padx=(5, 0))
         self.in_canvas.bind('<Configure>', lambda e: self.show_input())
         self.in_canvas.bind('<ButtonPress-1>', self.start_crop)
         self.in_canvas.bind('<ButtonPress-3>', self.remove_manual_segment)
@@ -667,7 +687,8 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.crop_handle = None
             self.crop_start = None
             self.original_image = image.copy()
-            self.set_recommended_ratio(image)
+            self.ratio_var.set('FREE')
+            self.crop_box = self.crop_to_ratio('FREE')
             self.input_image = image.copy()
             self.sd_input_image = None
             self.output_image = None

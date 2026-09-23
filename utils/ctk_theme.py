@@ -4,10 +4,20 @@ from pathlib import Path
 import customtkinter as ctk
 
 
+def _env_value(name, default=''):
+	value = os.getenv(name, default)
+	if value is None:
+		return default
+	value = str(value).strip()
+	if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+		value = value[1:-1]
+	return value
+
+
 def configure_ctk_theme():
 	themes_dir = Path(__file__).resolve().parent.parent / 'themes'
-	mode = str(os.getenv('CTk_mode') or 'system').strip().lower()
-	theme = str(os.getenv('CTk_theme') or 'default.json').strip()
+	mode = _env_value('CTk_mode', 'system').lower()
+	theme = _env_value('CTk_theme', 'default.json')
 	theme_path = themes_dir / theme
 	default_theme_path = themes_dir / 'default.json'
 

@@ -8,9 +8,9 @@ class CropImageMixin:
         ratio_sizes = self.recommended_ratio_sizes
         choice = min(ratio_sizes, key=lambda key: abs(math.log(aspect / (ratio_sizes[key][0] / ratio_sizes[key][1]))))
         self.ratio_var.set(choice)
-        self.crop_box = self.default_crop_box_for_ratio(choice)
+        self.crop_box = self.crop_to_ratio(choice)
 
-    def default_crop_box_for_ratio(self, choice):
+    def crop_to_ratio(self, choice):
         if self.original_image is None:
             return 0.0, 0.0, 1.0, 1.0
         if choice.strip().upper() == 'FREE':
@@ -319,7 +319,7 @@ class CropImageMixin:
             return
         if self.crop_box is None:
             return
-        self.crop_box = self.default_crop_box_for_ratio(self.ratio_var.get())
+        self.crop_box = self.crop_to_ratio(self.ratio_var.get())
         self.reset_preview_state()
         self.refresh_crop_ui(allow_reload=True)
         print('Crop reset')

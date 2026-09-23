@@ -15,7 +15,7 @@ from diffusers import StableDiffusionControlNetInpaintPipeline, StableDiffusionI
 from insightface.app import FaceAnalysis
 from controlnet_aux import OpenposeDetector
 from WIP.pose_editor import SkeletonEditor
-from modules.sd_ideal import SDIdealImageMixin
+from utils.sd_ideal import SDIdealImageMixin
 CHECKPOINT_PATH = r"Z:\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\lazymixRealAmateur_v40Inpainting.safetensors"
 CONTROLNET_MODEL = "lllyasviel/control_v11p_sd15_openpose"
 IP_ADAPTER_REPO = "h94/IP-Adapter"

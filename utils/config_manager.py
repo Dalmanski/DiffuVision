@@ -12,7 +12,7 @@ class ConfigManager:
 
     @staticmethod
     def load_env(base_dir):
-        load_dotenv(Path(base_dir) / '.env')
+        load_dotenv(Path(base_dir) / '.env', override=True)
 
     @staticmethod
     def env_value(name, default):
