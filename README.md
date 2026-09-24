@@ -94,6 +94,50 @@ SD_INPAINT_MODEL='["YOUR FULL PATH TO DreamShaper_8_INPAINTING.inpainting.safete
 
 Replace the placeholder path with the actual location of the model file on your computer.
 
+## Add a LoRA Model (Optional)
+
+The project supports SD 1.5 LoRA files through the `SD_15_LoRA_MODEL` setting in `.env`.
+
+### Recommended LoRA
+
+This is a good starting point for extra detail/style control:
+
+* **Model:** Detail Tweaker
+* **Link:** https://civitai.com/models/58390/detail-tweaker-lora-lora
+* **Recommended usage:** Same as a normal inpainting LoRA; keep it lightweight and test one model at a time.
+
+Download the LoRA file (`.safetensors` or `.bin`) and place it in a folder such as:
+
+```text
+DiffuVision/model/LoRA/
+```
+
+Example structure:
+
+```text
+DiffuVision/
+├── model/
+│   ├── DreamShaper_8_INPAINTING.inpainting.safetensors
+│   └── LoRA/
+│       └── detail_tweaker.safetensors
+├── app.py
+└── ...
+```
+
+Then add the LoRA path to your project `.env` file:
+
+```env
+SD_15_LoRA_MODEL='["model/LoRA/detail_tweaker.safetensors"]'
+```
+
+You can also use a full absolute Windows path:
+
+```env
+SD_15_LoRA_MODEL='["C:/Users/YourName/Downloads/detail_tweaker.safetensors"]'
+```
+
+> **Important:** The app reads LoRA paths from `SD_15_LoRA_MODEL` in `.env`. If you want the LoRA to load, make sure the file exists and the path is correct.
+
 ## 4. Download and Install SAM 2.1
 
 Open the **VS Code terminal** inside your DiffuVision project folder and run these commands **one at a time**:
@@ -145,3 +189,13 @@ This project is actively under development and does not currently have a standal
 
 * **Date Created:** September 1, 2026
 * **Status:** Work in Progress (WIP)
+
+## My available for now:
+### Model
+* DreamShaper8
+* lazymixRealAmateur
+* realisticVisionV60B1
+### LoRA
+* [detail-tweaker-lora.safetensors](https://civitai.com/models/58390)
+* [hourglassv01.safetensors](https://civitai.com/models/129130)
+* [perfectb.safetensors](https://civitai.com/models/662593)

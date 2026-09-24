@@ -1,7 +1,7 @@
 {
     "positive_prompt": "wearing black shirt",
-    "negative_prompt": "low quality, bad anatomy, deformed, extra limbs",
-    "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress]",
+    "negative_prompt": "(hands:1.25), low quality, bad anatomy, deformed, extra limbs",
+    "seg_pos_prompt": "@fashn: [top, pants, belt, skirt, dress, torso]",
     "seg_neg_prompt": "",
     "steps": 32,
     "cfg": 3.6,
@@ -10,5 +10,5 @@
     "cfg_rescale": 0,
     "mask_blur": 2.5,
     "mask_thickness": 5,
-    "c": "lowest precise: steps=23"
+    "c": "lowest precise: steps=23 and steps=26, default steps=32"
 }

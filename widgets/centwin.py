@@ -20,7 +20,7 @@ def center_popup(window, width, height):
 
 
 """
-from utils.centwin import center_window
+from widgets.centwin import center_window
 
 center_window(self, width=width, height=height)
 """

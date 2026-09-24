@@ -12,12 +12,13 @@ from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin
 from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
+from widgets.ctk_theme import configure_ctk_theme
+from widgets.crop_img import CropImageMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
-from utils.ctk_theme import configure_ctk_theme
-from utils.crop_img import CropImageMixin
-from utils.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
+from utils.dupfilename import prompt_save_path
+from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
 
 BASE_DIR = Path(__file__).resolve().parent
 ConfigManager.load_env(BASE_DIR)
@@ -83,8 +84,8 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.crop_handle = None
         self.sd_rec = ctk.BooleanVar(value=True)
         self.esrgan_out = ctk.BooleanVar(value=False)
-        self.full_out = ctk.BooleanVar(value=True)
-        self.apply_meta = ctk.BooleanVar(value=False)
+        self.full_out = ctk.BooleanVar(value=False)
+        self.apply_meta = ctk.BooleanVar(value=True)
         self.stop_requested = threading.Event()
         self.closing = False
         self.autosave = ctk.BooleanVar(value=True)
@@ -406,7 +407,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
 
     def refresh_crop_ui(self, *, allow_reload=True):
         self.reload_btn.configure(state='normal' if self.original_image is not None and not self.processing and allow_reload else 'disabled')
-        self.update_manual_segment_buttons()
+        self.update_manual_btns()
         self.update_crop_state()
         self.update_gen_state()
 
@@ -416,7 +417,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             state = 'disabled'
         self.reset_btn.configure(state=state)
         self.ratio_menu.configure(state=state)
-        self.update_manual_segment_buttons()
+        self.update_manual_btns()
 
     def load_env(self):
         global MODEL_OPTIONS, DEFAULT_MODEL
@@ -1067,24 +1068,13 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def save(self):
         if self.output_image is None:
             return
-        original_name = Path(self.img_name or 'image').stem
-        input_dir = Path(self.input_path).parent if self.input_path else Path.cwd()
-        initial_dir = self.last_dir if self.last_dir and self.last_dir.exists() else input_dir
-        base_name = f'{original_name}_DiffuVision'
-        initial_path = initial_dir / f'{base_name}.png'
-        counter = 1
-        while initial_path.exists():
-            initial_path = initial_dir / f'{base_name} ({counter}).png'
-            counter += 1
-        path = filedialog.asksaveasfilename(title='Save generated image', initialdir=str(initial_dir), initialfile=initial_path.name, confirmoverwrite=True, defaultextension='.png', filetypes=[('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')])
-        if not path:
+        path = prompt_save_path('Save generated image', f'{Path(self.img_name or "image").stem}_DiffuVision', self.input_path, self.last_dir)
+        if path is None:
             return
-        path = Path(path)
         self.last_dir = path.parent
         try:
             output = self.output_image
-            suffix = path.suffix.lower()
-            if suffix in ('.jpg', '.jpeg'):
+            if path.suffix.lower() in ('.jpg', '.jpeg'):
                 output = output.convert('RGB')
             output.save(path)
             print('Saved')
@@ -1094,19 +1084,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def save_compare(self):
         if self.original_image is None or self.output_image is None:
             return
-        original_name = Path(self.img_name or 'image').stem
-        input_dir = Path(self.input_path).parent if self.input_path else Path.cwd()
-        initial_dir = self.last_dir if self.last_dir and self.last_dir.exists() else input_dir
-        base_name = f'{original_name}_DiffuVision_CF'
-        initial_path = initial_dir / f'{base_name}.png'
-        counter = 1
-        while initial_path.exists():
-            initial_path = initial_dir / f'{base_name} ({counter}).png'
-            counter += 1
-        path = filedialog.asksaveasfilename(title='Save comparison image', initialdir=str(initial_dir), initialfile=initial_path.name, confirmoverwrite=True, defaultextension='.png', filetypes=[('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')])
-        if not path:
+        path = prompt_save_path('Save comparison image', f'{Path(self.img_name or "image").stem}_DiffuVision_CF', self.input_path, self.last_dir)
+        if path is None:
             return
-        path = Path(path)
         self.last_dir = path.parent
         try:
             original = self.original_image.convert('RGB')

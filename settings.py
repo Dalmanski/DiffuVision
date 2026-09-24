@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 import customtkinter as ctk
 from dotenv import dotenv_values, set_key
-from utils.ctk_theme import configure_ctk_theme
-from utils.centwin import center_window
+from widgets.ctk_theme import configure_ctk_theme
+from widgets.centwin import center_window
 from utils.config_manager import ConfigManager
 
 BASE_DIR = Path(__file__).resolve().parent

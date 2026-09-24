@@ -10,7 +10,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class SegmentImageMixin:
 
-    def update_manual_segment_buttons(self):
+    def update_manual_btns(self):
         if not hasattr(self, 'manual_btn'):
             return
         base_state = 'normal' if self.original_image is not None and not self.processing and not self.model_loading and not self.seg_loading and not self.class_loading and not self.manual_loading else 'disabled'
@@ -43,6 +43,13 @@ class SegmentImageMixin:
         print('Loading SAM2 point selection...')
         threading.Thread(target=self.load_manual_segmenter_worker, daemon=True).start()
 
+    def finish_manual_loading(self):
+        self.manual_loading = False
+        self.after(0, self.update_manual_btns)
+        self.after(0, self.update_crop_state)
+        self.after(0, self.show_input)
+        self.after(0, self.update_gen_state)
+
     def load_manual_segmenter_worker(self):
         try:
             if self.sd_input_image is None:
@@ -58,10 +65,7 @@ class SegmentImageMixin:
             print(f'SAM2 point selection error: {e}')
             self.after(0, lambda err=str(e): print(f'SAM2 Error: {err}'))
         finally:
-            self.manual_loading = False
-            self.after(0, self.update_crop_state)
-            self.after(0, self.show_input)
-            self.after(0, self.update_gen_state)
+            self.finish_manual_loading()
 
     def disable_manual_segment_mode(self):
         self.manual_mode = False
@@ -83,7 +87,7 @@ class SegmentImageMixin:
             return
         image_x, image_y = point
         self.manual_loading = True
-        self.update_manual_segment_buttons()
+        self.update_manual_btns()
         threading.Thread(target=self.manual_segment_worker, args=(image_x, image_y), daemon=True).start()
 
     def get_manual_segment_point(self, event):
@@ -153,7 +157,9 @@ class SegmentImageMixin:
             self.after(0, lambda err=str(e): print(f'SAM2 Selection Error: {err}'))
         finally:
             self.manual_loading = False
+            self.after(0, self.update_manual_btns)
             self.after(0, self.update_crop_state)
+            self.after(0, self.show_input)
             self.after(0, lambda: self.clear_seg_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
             self.after(0, self.update_gen_state)
 
@@ -255,7 +261,7 @@ class SegmentImageMixin:
         self.show_orig = False
         self.generate_btn.configure(state='disabled')
         self.reload_btn.configure(state='disabled')
-        self.update_manual_segment_buttons()
+        self.update_manual_btns()
         self.show_input()
         self.show_output()
         print('Reloading mask...')

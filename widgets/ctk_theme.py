@@ -28,7 +28,7 @@ def configure_ctk_theme():
 	ctk.set_default_color_theme(str(theme_path))
 
 '''
-from utils.ctk_theme import configure_ctk_theme
+from widgets.ctk_theme import configure_ctk_theme
 
 configure_ctk_theme()
 '''
