@@ -2,7 +2,7 @@ import os, sys, json, time, threading, gc, subprocess
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
-from PIL import Image, ImageEnhance, ImageTk, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter, ImageTk, ImageOps
 import numpy as np, torch
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
@@ -14,6 +14,8 @@ from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from widgets.ctk_theme import configure_ctk_theme
 from widgets.crop_img import CropImageMixin
+from widgets.ctk_utils import GradientButton
+from widgets.gif_anim import GifAnimationMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
@@ -30,11 +32,12 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 MODEL_OPTIONS = {}
 DEFAULT_MODEL = ''
 RATIO_OPTIONS = ['FREE', '1:1', '4:3', '3:2', '16:9', '5:4', '4:5', '3:4', '2:3', '9:16']
+LOADING_GIF = 'images\\gif\\loading.gif'
 
 class GenerationStopped(Exception):
     pass
 
-class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
+class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('DiffuVision - Inpainting with Stable Diffusion')
@@ -75,8 +78,6 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.input_pic = None
         self.output_pic = None
         self.input_busy_visual = False
-        self.spinner_id = None
-        self.spinner_angle = 0
         self.crop_box = None
         self.crop_start = None
         self.input_box = None
@@ -151,6 +152,10 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.quit()
         self.destroy()
 
+    @staticmethod
+    def gradient_button(parent, text, command=None, **kwargs):
+        return GradientButton(parent, text=text, command=command, **kwargs)
+
     def ui(self):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -168,11 +173,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.input_label.grid(row=0, column=0, sticky='w', padx=4, pady=(0, 4))
         self.mask_button_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
         self.mask_button_row.grid(row=0, column=1, sticky='e', padx=2, pady=(0, 4))
-        self.reload_btn = ctk.CTkButton(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 18))
+        self.reload_btn = self.gradient_button(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled')
         self.reload_btn.grid(row=0, column=0, sticky='e', padx=(0, 4))
-        self.manual_btn = ctk.CTkButton(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled', font=('Segoe UI Symbol', 18))
+        self.manual_btn = self.gradient_button(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled')
         self.manual_btn.grid(row=0, column=1, sticky='e', padx=4)
-        self.clear_seg_btn = ctk.CTkButton(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled', font=('Segoe UI Emoji', 17), fg_color='#21262D', hover_color='#30363D')
+        self.clear_seg_btn = self.gradient_button(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled')
         self.clear_seg_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
         self.img_box = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=680)
         self.left_frame.grid_rowconfigure(1, minsize=680, weight=0)
@@ -185,9 +190,9 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.ratio_var = ctk.StringVar(value='1:1')
         self.ratio_menu = ctk.CTkOptionMenu(self.img_box, variable=self.ratio_var, values=RATIO_OPTIONS, command=self.ratio_changed, width=104, height=34, corner_radius=6)
         self.ratio_menu.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.reset_btn = ctk.CTkButton(self.img_box, text='🖾', command=self.reset_crop, width=34, height=34, corner_radius=6, fg_color='#21262D', hover_color='#30363D', font=('Segoe UI Symbol', 17))
+        self.reset_btn = self.gradient_button(self.img_box, text='🖾', command=self.reset_crop, width=34, height=34)
         self.reset_btn.place(relx=1.0, x=-8, y=48, anchor='ne')
-        self.upload_btn = ctk.CTkButton(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
+        self.upload_btn = self.gradient_button(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
         self.upload_btn.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.prompt_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
         self.prompt_row.grid(row=3, column=0, columnspan=2, sticky='ew', padx=2, pady=(7, 10))
@@ -209,11 +214,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.sd_rec_cb.grid(row=0, column=0, sticky='w', padx=2, pady=3)
         self.apply_meta_cb = ctk.CTkCheckBox(self.preprocessing_row, text='Apply image class, age and gender', variable=self.apply_meta, command=self.toggle_meta_prompts)
         self.apply_meta_cb.grid(row=0, column=1, sticky='w', padx=2, pady=3)
-        ctk.CTkLabel(self.cfg_box, text='MODEL (SD INPAINTING):', anchor='w', width=100).grid(row=1, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
+        ctk.CTkLabel(self.cfg_box, text='MODEL:', anchor='w', width=100).grid(row=1, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.model_menu = ctk.CTkOptionMenu(self.cfg_box, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
         self.model_menu.grid(row=1, column=1, sticky='ew', padx=2, pady=(0, 8))
-        ctk.CTkLabel(self.cfg_box, text='LoRA (SD INPAINTING):', anchor='w', width=100).grid(row=2, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
-        self.lora_menu = ctk.CTkButton(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w')
+        ctk.CTkLabel(self.cfg_box, text='LoRA:', anchor='w', width=100).grid(row=2, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
+        self.lora_menu = self.gradient_button(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w', height=34)
         self.lora_menu.grid(row=2, column=1, sticky='ew', padx=2, pady=(0, 4))
         self.lora_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
         self.lora_panel.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
@@ -243,7 +248,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.config_row.grid_columnconfigure(1, weight=0)
         self.cfg_menu = ctk.CTkOptionMenu(self.config_row, values=[], command=self.config_changed)
         self.cfg_menu.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.autosave_btn = ctk.CTkButton(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
+        self.autosave_btn = self.gradient_button(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.json = JSONTextBox(self.cfg_box, height=220, font_size=12, fg_color='#000000')
         self.json.grid(row=6, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
@@ -264,11 +269,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.generate_row.grid_columnconfigure(0, weight=0)
         self.generate_row.grid_columnconfigure(1, weight=1)
         self.generate_row.grid_columnconfigure(2, weight=0)
-        self.cfg_btn = ctk.CTkButton(self.generate_row, text='CONFIG', command=self.toggle_config, width=70, height=42)
+        self.cfg_btn = self.gradient_button(self.generate_row, text='CONFIG', command=self.toggle_config, width=70, height=42)
         self.cfg_btn.grid(row=0, column=0, sticky='w', padx=(0, 5))
-        self.generate_btn = ctk.CTkButton(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
+        self.generate_btn = self.gradient_button(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
         self.generate_btn.grid(row=0, column=1, sticky='ew', padx=5)
-        self.chili_btn = ctk.CTkButton(self.generate_row, text='🌶️', command=self.chili_generate, state='disabled', width=42, height=42, font=('Segoe UI Emoji', 18))
+        self.chili_btn = self.gradient_button(self.generate_row, text='🌶', command=self.chili_generate, state='disabled', width=42, height=42)
         self.chili_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=10)
@@ -280,7 +285,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.output_container.grid_columnconfigure(0, weight=1)
         self.out_canvas = ctk.CTkCanvas(self.output_container, bg='#000000', highlightthickness=0)
         self.out_canvas.grid(row=0, column=0, sticky='nsew')
-        self.swap_btn = ctk.CTkButton(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34, corner_radius=6, font=('Segoe UI Symbol', 18), fg_color='#21262D', hover_color='#30363D')
+        self.swap_btn = self.gradient_button(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
         self.swap_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
         self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
@@ -290,13 +295,13 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.save_clear_row.grid_columnconfigure(1, weight=0)
         self.save_clear_row.grid_columnconfigure(2, weight=0)
         self.save_clear_row.grid_columnconfigure(3, weight=0)
-        self.save_btn = ctk.CTkButton(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
+        self.save_btn = self.gradient_button(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.cf_btn = ctk.CTkButton(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
+        self.cf_btn = self.gradient_button(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
         self.cf_btn.grid(row=0, column=1, sticky='e', padx=5)
-        self.clear_btn = ctk.CTkButton(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
+        self.clear_btn = self.gradient_button(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
-        self.settings_btn = ctk.CTkButton(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46, fg_color='#21262D', hover_color='#30363D', font=('Segoe UI Emoji', 18))
+        self.settings_btn = self.gradient_button(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46)
         self.settings_btn.grid(row=0, column=3, sticky='e', padx=(5, 0))
         self.in_canvas.bind('<Configure>', lambda e: self.show_input())
         self.in_canvas.bind('<ButtonPress-1>', self.start_crop)
@@ -309,6 +314,22 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         self.show_output()
         self.after(80, self.spin_loader)
 
+    @staticmethod
+    def normalize_choice(value, valid, fallback='NONE'):
+        value = str(value).strip()
+        if not value or value.upper() == 'NONE':
+            return fallback
+        value = value.lower()
+        return value if value in valid else fallback
+
+    def set_widget_state(self, state, *widgets):
+        for widget in widgets:
+            if widget is not None:
+                widget.configure(state=state)
+
+    def schedule(self, callback, *args, **kwargs):
+        self.after(0, lambda: callback(*args, **kwargs))
+
     def input_is_busy(self):
         return any((self.processing, self.model_loading, self.seg_loading, self.class_loading, self.manual_loading))
 
@@ -317,9 +338,6 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         if busy != self.input_busy_visual:
             self.input_busy_visual = busy
             self.show_input()
-        if busy and self.spinner_id is not None:
-            self.spinner_angle = (self.spinner_angle + 30) % 360
-            self.in_canvas.itemconfigure(self.spinner_id, start=self.spinner_angle)
         self.after(80, self.spin_loader)
 
     def toggle_config(self):
@@ -384,7 +402,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             payload = open_payload(CHILI_BIN)
             self.generate(config_override=dict(payload))
         except Exception:
-            print('Just a chili. Please click the GENERATE button beside the chili.')
+            print('Nyaaahhh~ I don\'t want the chili! It\'s too spicy for me ⸜(｡˃ ᵕ ˂ )⸝♡')
         return
 
     def stop_generation(self):
@@ -589,6 +607,7 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             return
         if self.model_name == choice and self.models_ready:
             return
+        self.config_manager.reorder_model_list_in_env(MODEL_OPTIONS.get(choice, ''))
         self.models_ready = False
         self.generate_btn.configure(state='disabled')
         self.model_menu.configure(state='disabled')
@@ -637,43 +656,34 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             self.models_ready = True
             self.model_loading = False
             print(f'{model_name} ready • {DEVICE.upper()}')
-            self.after(0, self.refresh_lora_menu)
-            self.after(0, lambda: self.model_menu.configure(state='normal'))
-            self.after(0, self.update_gen_state)
+            self.schedule(self.refresh_lora_menu)
+            self.schedule(self.model_menu.configure, state='normal')
+            self.schedule(self.update_gen_state)
         except Exception as e:
             self.models_ready = False
             self.model_loading = False
             self.seg_loading = False
             print(f'Error: {e}')
             self.cleanup_gpu()
-            self.after(0, lambda: self.model_menu.configure(state='normal'))
-            self.after(0, lambda err=str(e): print(f'Model Error: {err}'))
+            self.schedule(self.model_menu.configure, state='normal')
+            self.schedule(print, f'Model Error: {e}')
 
     def set_img_class(self, classification):
-        best_class = str(classification.get('best_class', '')).strip()
-        best_class = 'NONE' if best_class.upper() == 'NONE' else best_class.lower()
+        best_class = self.normalize_choice(classification.get('best_class', ''), IMAGE_CLASS)
         if best_class not in IMAGE_CLASS:
             best_class = IMAGE_CLASS[1]
         self.img_cls.set(best_class)
         self.image_class_menu.configure(state='normal')
-        print(f'Class: {best_class.upper()}')
 
     def set_gender(self, result):
-        detected_gender = str(result[0]).strip()
-        detected_gender = 'NONE' if detected_gender.upper() == 'NONE' else detected_gender.lower()
-        if detected_gender not in GENDER_CLASS:
-            detected_gender = 'NONE'
+        detected_gender = self.normalize_choice(result[0], GENDER_CLASS)
         self.gender.set(detected_gender)
         self.gender_menu.configure(state='normal')
-        print(f'Gender: {detected_gender.upper()}')
 
     def set_age(self, result):
-        detected_age = str(result[0]).strip().lower()
-        if detected_age not in ('NONE', *AGE_CLASS):
-            detected_age = 'NONE'
+        detected_age = self.normalize_choice(result[0], ['NONE', *AGE_CLASS])
         self.age.set(detected_age)
         self.age_menu.configure(state='normal')
-        print(f'Age: {detected_age.upper()}')
 
     def prep_image(self, path):
         image = ImageOps.exif_transpose(load_image(path))
@@ -692,36 +702,35 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             print('Classifying image...')
             classification = self.classify_input_image(file_path)
             self.cls_res = classification
-            self.after(0, lambda result=classification: self.set_img_class(result))
-            print('Classifying gender...')
+            self.schedule(self.set_img_class, classification)
             gender_result = predict_gender(file_path)
             self.gender_res = gender_result
-            self.after(0, lambda result=gender_result: self.set_gender(result))
-            print('Classifying age...')
+            self.schedule(self.set_gender, gender_result)
             age_result = predict_age(file_path)
             self.cleanup_gpu()
             self.age_res = age_result
-            self.after(0, lambda result=age_result: self.set_age(result))
-            print('Classification ready')
-            self.after(0, lambda: self.image_class_menu.configure(state='normal'))
-            self.after(0, lambda: self.gender_menu.configure(state='normal'))
-            self.after(0, lambda: self.age_menu.configure(state='normal'))
+            self.schedule(self.set_age, age_result)
+            best_class = self.normalize_choice(classification.get('best_class', ''), IMAGE_CLASS)
+            best_class = best_class if best_class in IMAGE_CLASS else IMAGE_CLASS[1]
+            detected_gender = self.normalize_choice(gender_result[0], GENDER_CLASS)
+            detected_age = self.normalize_choice(age_result[0], ['NONE', *AGE_CLASS])
+            print(f'Class: {best_class.upper()}, Gender: {detected_gender.upper()}, Age: {detected_age.upper()}')
+            print('Classification finished')
+            self.schedule(self.set_widget_state, 'normal', self.image_class_menu, self.gender_menu, self.age_menu)
         except Exception as e:
             self.cls_res = None
             self.gender_res = None
             self.age_res = None
-            self.after(0, lambda err=str(e): print(f'Image Classification Error: {err}'))
-            self.after(0, lambda: self.image_class_menu.configure(state='normal'))
-            self.after(0, lambda: self.gender_menu.configure(state='normal'))
-            self.after(0, lambda: self.age_menu.configure(state='normal'))
-            self.after(0, lambda: self.img_cls.set('NONE'))
-            self.after(0, lambda: self.gender.set('NONE'))
-            self.after(0, lambda: self.age.set('NONE'))
+            self.schedule(print, f'Image Classification Error: {e}')
+            self.schedule(self.set_widget_state, 'normal', self.image_class_menu, self.gender_menu, self.age_menu)
+            self.schedule(self.img_cls.set, 'NONE')
+            self.schedule(self.gender.set, 'NONE')
+            self.schedule(self.age.set, 'NONE')
             print(f'Classify error: {e}')
         finally:
             self.class_loading = False
-            self.after(0, self.update_gen_state)
-            self.after(0, self.update_crop_state)
+            self.schedule(self.update_gen_state)
+            self.schedule(self.update_crop_state)
 
     def upload(self):
         if self.processing or self.model_loading or self.seg_loading or self.class_loading or self.manual_mode or self.manual_loading:
@@ -775,23 +784,16 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         negative_prompt = str(config.get('negative_prompt', '')).strip()
         if not apply_class_gender:
             return positive_prompt, negative_prompt
-        class_prompts = {'NONE': ('', ''), **{class_name: (class_name, ', '.join(other for other in IMAGE_CLASS[1:] if other != class_name)) for class_name in IMAGE_CLASS[1:]}}
-        selected_class = str(selected_class).strip()
-        selected_gender = str(selected_gender).strip()
-        selected_age = str(selected_age).strip()
-        selected_class = 'NONE' if selected_class.upper() == 'NONE' else selected_class.lower()
-        selected_gender = 'NONE' if selected_gender.upper() == 'NONE' else selected_gender.lower()
-        selected_age = 'NONE' if selected_age.upper() == 'NONE' else selected_age.lower()
+        class_prompts = {'NONE': ('', '')}
+        for class_name in IMAGE_CLASS[1:]:
+            class_prompts[class_name] = (class_name, ', '.join(other for other in IMAGE_CLASS[1:] if other != class_name))
+        selected_class = self.normalize_choice(selected_class, IMAGE_CLASS)
+        selected_gender = self.normalize_choice(selected_gender, GENDER_CLASS)
+        selected_age = self.normalize_choice(selected_age, ['NONE', *AGE_CLASS])
         gender_append = '' if selected_gender == 'NONE' else selected_gender
         age_append = '' if selected_age == 'NONE' else selected_age
         class_positive, class_negative = class_prompts.get(selected_class, ('', ''))
-        person_prefix = ''
-        if gender_append and age_append:
-            person_prefix = f'{gender_append} {age_append}'
-        elif gender_append:
-            person_prefix = gender_append
-        elif age_append:
-            person_prefix = age_append
+        person_prefix = ' '.join(part for part in (gender_append, age_append) if part)
         if person_prefix:
             positive_prompt = f'{person_prefix}, {positive_prompt}' if positive_prompt else person_prefix
         if class_positive:
@@ -843,7 +845,6 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         mask = self.mask_image.copy() if self.has_valid_mask(self.mask_image) else None
         if mask is None:
             self.mask_src = None
-            print('No segment is present on the input preview • automatic segmentation will run')
         elif self.mask_src == 'manual':
             print('Manual segment available • skipping automatic segmentation')
         elif self.mask_src == 'auto':
@@ -939,10 +940,12 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                 self.check_stop_requested()
                 step = step_index + 1
                 elapsed = time.time() - self.start_time
-                rate = elapsed / step
-                remaining = (steps - step) * rate
+                remaining = max(0, (steps - step) * (elapsed / max(step, 1)))
                 percent = int(step / steps * 100)
-                self.console.log(f'{percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}] | {model_name}', live=True)
+                bar_len = 30
+                filled = round(percent / 100 * bar_len)
+                bar = f'{"█" * filled}{"░" * (bar_len - filled)}'
+                self.console.log(f'[{bar}] {percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}]', live=True)
                 return callback_kwargs
 
             print(f'Generating {w}x{h}...')
@@ -972,26 +975,26 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
                     self.save()
 
             self.after(0, finish_generation)
-            print(f'Generation {generation_id} done • {self.time_text(elapsed)}')
+            print(f'\nGeneration {generation_id} done • {self.time_text(elapsed)}')
         except GenerationStopped:
             print(f'Generation {generation_id} stopped')
         except Exception as e:
             print(f'Generation {generation_id} error: {e}')
-            self.after(0, lambda err=str(e): print(f'Generation Error: {err}'))
+            self.schedule(print, f'Generation Error: {e}')
         finally:
             self.processing = False
             self.stop_requested.clear()
             self.seg_loading = False
             self.cleanup_gpu()
-            self.after(0, self.update_gen_state)
-            self.after(0, lambda: self.reload_btn.configure(state='normal' if self.original_image is not None and not self.seg_loading else 'disabled'))
-            self.after(0, self.update_crop_state)
-            self.after(0, lambda: self.upload_btn.configure(state='normal'))
-            self.after(0, lambda: self.model_menu.configure(state='normal'))
-            self.after(0, lambda: self.image_class_menu.configure(state='normal'))
-            self.after(0, lambda: self.gender_menu.configure(state='normal'))
-            self.after(0, lambda: self.age_menu.configure(state='normal'))
-            self.after(0, lambda: self.ratio_menu.configure(state='normal'))
+            self.schedule(self.update_gen_state)
+            self.schedule(self.reload_btn.configure, state='normal' if self.original_image is not None and not self.seg_loading else 'disabled')
+            self.schedule(self.update_crop_state)
+            self.schedule(self.upload_btn.configure, state='normal')
+            self.schedule(self.model_menu.configure, state='normal')
+            self.schedule(self.image_class_menu.configure, state='normal')
+            self.schedule(self.gender_menu.configure, state='normal')
+            self.schedule(self.age_menu.configure, state='normal')
+            self.schedule(self.ratio_menu.configure, state='normal')
 
     def time_text(self, seconds):
         seconds = max(0, int(seconds))
@@ -1029,13 +1032,11 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
             fitted = ImageEnhance.Brightness(fitted).enhance(0.45)
         self.input_pic = ImageTk.PhotoImage(fitted)
         self.in_canvas.create_image(x, y, anchor='nw', image=self.input_pic)
-        self.spinner_id = None
-        if self.input_is_busy():
-            spinner_size = min(70, max(36, min(fitted.size) // 5))
-            center_x = x + fitted.width // 2
-            center_y = y + fitted.height // 2
-            self.spinner_id = self.in_canvas.create_arc(center_x - spinner_size, center_y - spinner_size, center_x + spinner_size, center_y + spinner_size, start=self.spinner_angle, extent=270, style='arc', outline='#FFFFFF', width=5)
         self.draw_crop_overlay()
+        if self.input_is_busy():
+            self.play_gif(LOADING_GIF, x=(x + fitted.width / 2), y=(y + fitted.height / 2), anchor='center', speed=1.2)
+        else:
+            self.stop_gif(LOADING_GIF)
         self.update_crop_state()
 
     def show_output(self):
@@ -1047,10 +1048,20 @@ class App(SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
         if image is None:
             canvas_w = max(1, self.out_canvas.winfo_width())
             canvas_h = max(1, self.out_canvas.winfo_height())
-            loading = self.processing or self.model_loading or self.seg_loading or self.class_loading
-            label = 'Loading...' if loading else 'Output Image'
-            self.out_canvas.create_text(canvas_w // 2, canvas_h // 2, text=label, fill='#888888', font=('Segoe UI', 18))
+            if self.processing and self.original_image is not None:
+                fitted = ImageOps.contain(self.original_image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)
+                fitted = ImageEnhance.Brightness(fitted).enhance(0.25).filter(ImageFilter.GaussianBlur(6))
+                self.output_pic = ImageTk.PhotoImage(fitted)
+                x = (canvas_w - fitted.width) // 2
+                y = (canvas_h - fitted.height) // 2
+                self.out_canvas.create_image(x, y, anchor='nw', image=self.output_pic)
+                self.play_gif(LOADING_GIF, self.out_canvas, canvas_w / 2, canvas_h / 2, speed=1.2)
+            else:
+                self.stop_gif(LOADING_GIF, self.out_canvas)
+                label = 'Waiting to generate...' if self.original_image is not None else 'Output Image'
+                self.out_canvas.create_text(canvas_w // 2, canvas_h // 2, text=label, fill='#888888', font=('Segoe UI', 18))
             return
+        self.stop_gif(LOADING_GIF, self.out_canvas)
         canvas_w = max(1, self.out_canvas.winfo_width())
         canvas_h = max(1, self.out_canvas.winfo_height())
         fitted = ImageOps.contain(image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)

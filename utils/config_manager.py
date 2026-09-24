@@ -115,6 +115,32 @@ class ConfigManager:
         autosave = True if autosave_value is None else autosave_value.strip().lower() in ('1', 'true', 'yes', 'on')
         return models, default_model, loras, start_config, autosave
 
+    def write_env_key(self, key, value):
+        lines = self._read_env_lines()
+        formatted = json.dumps(value) if isinstance(value, list) else str(value)
+        updated = []
+        written = False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                updated.append(line)
+                continue
+            if '=' in stripped:
+                current_key, _ = stripped.split('=', 1)
+            elif ':' in stripped:
+                current_key, _ = stripped.split(':', 1)
+            else:
+                updated.append(line)
+                continue
+            if current_key.strip() == key:
+                updated.append(f'{key}={formatted}')
+                written = True
+            else:
+                updated.append(line)
+        if not written:
+            updated.append(f'{key}={formatted}')
+        self.env_path.write_text('\n'.join(updated) + '\n', encoding='utf-8')
+
     def write_env_settings(self, active_config_path, autosave_enabled):
         values = self.read_env_file()
         values['JSON_config'] = self.relative_config_path(active_config_path)
@@ -146,6 +172,22 @@ class ConfigManager:
                 lines.append(f'{prefix}={value}')
 
         self.env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+    def reorder_model_list_in_env(self, selected_model_path):
+        if not selected_model_path:
+            return
+        selected_path = str(Path(selected_model_path).resolve(strict=False))
+        env_value = self.read_env_file().get('SD_INPAINT_MODEL', '').strip()
+        current = self.parse_json_list(env_value) or ([env_value] if env_value else [])
+        ordered = [selected_path]
+        seen = {selected_path.lower()}
+        for raw in current:
+            candidate = str(Path(str(raw)).resolve(strict=False))
+            key = candidate.lower()
+            if key not in seen:
+                ordered.append(candidate)
+                seen.add(key)
+        self.write_env_key('SD_INPAINT_MODEL', ordered)
 
     def relative_config_path(self, active_config_path):
         active_config_path = Path(active_config_path)

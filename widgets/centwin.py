@@ -1,26 +1,22 @@
+
 def center_window(window, width=None, height=None):
-    """Center a Tk/Tkinter window on the active screen."""
     window.update_idletasks()
-
-    if width is None:
-        width = max(1, window.winfo_width())
-    if height is None:
-        height = max(1, window.winfo_height())
-
-    screen_width = window.winfo_screenwidth()
-    screen_height = window.winfo_screenheight()
-    x = max(0, (screen_width - width) // 2)
-    y = max(0, (screen_height - height) // 2)
-    window.geometry(f"{width}x{height}+{x}+{y}")
+    width = width or window.winfo_reqwidth()
+    height = height or window.winfo_reqheight()
+    window.geometry(f"{width}x{height}+0+0")
+    window.update()
+    border = window.winfo_rootx() - window.winfo_x()
+    titlebar = window.winfo_rooty() - window.winfo_y()
+    x = max(0, (window.winfo_screenwidth() - width - 2 * border) // 2)
+    y = max(0, (window.winfo_screenheight() - height - titlebar - border) // 2)
+    window.geometry(f"+{x}+{y}")
 
 
 def center_popup(window, width, height):
-    """Center a popup or toplevel window using the given dimensions."""
     center_window(window, width=width, height=height)
 
-
 """
-from widgets.centwin import center_window
+from utils.centwin import center_window
 
-center_window(self, width=width, height=height)
+center_window(self, width=67, height=67)
 """
