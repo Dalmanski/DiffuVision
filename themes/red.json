@@ -5,6 +5,12 @@
     "CTkToplevel": {
         "fg_color": ["#FFFFFF", "#160B0D"]
     },
+    "CTkCanvas": {
+        "bg": ["#FFFFFF", "#211114"],
+        "highlightthickness": 1,
+        "highlightbackground": ["#E8CBCD", "#4A292E"],
+        "highlightcolor": ["#E8CBCD", "#4A292E"]
+    },
     "CTkFrame": {
         "corner_radius": 14,
         "border_width": 1,

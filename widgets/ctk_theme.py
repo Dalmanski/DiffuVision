@@ -28,10 +28,12 @@ def configure_ctk_theme(root=None):
 	ctk.set_default_color_theme(str(theme_path))
 
 	if root is not None:
-		from widgets.ctk_utils import GradientBtn
+		from widgets.ctk_utils import CanvasCTk, GradientBtn
 
 		def refresh(widget):
-			if isinstance(widget, GradientBtn):
+			if isinstance(widget, CanvasCTk):
+				widget.refresh_theme()
+			elif isinstance(widget, GradientBtn):
 				widget.refresh_theme()
 			for child in widget.winfo_children():
 				refresh(child)
@@ -41,5 +43,5 @@ def configure_ctk_theme(root=None):
 '''
 from widgets.ctk_theme import configure_ctk_theme
 
-configure_ctk_theme()
+configure_ctk_theme() 
 '''

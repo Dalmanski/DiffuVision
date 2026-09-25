@@ -7,6 +7,13 @@
         "fg_color": ["#FFFFFF", "#0B1220"]
     },
 
+    "CTkCanvas": {
+        "bg": ["#FFFFFF", "#111A2B"],
+        "highlightthickness": 1,
+        "highlightbackground": ["#D9E0EA", "#2A3952"],
+        "highlightcolor": ["#D9E0EA", "#2A3952"]
+    },
+
     "CTkFrame": {
         "corner_radius": 14,
         "border_width": 1,

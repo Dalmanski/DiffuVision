@@ -14,7 +14,7 @@ from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from widgets.ctk_theme import configure_ctk_theme
 from widgets.crop_img import CropImageMixin
-from widgets.ctk_utils import GradientBtn
+from widgets.ctk_utils import CanvasCTk, GradientBtn
 from widgets.gif_anim import GifAnimationMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
@@ -173,7 +173,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.img_box.grid_propagate(False)
         self.img_box.grid_rowconfigure(0, weight=1)
         self.img_box.grid_columnconfigure(0, weight=1)
-        self.in_canvas = ctk.CTkCanvas(self.img_box, bg=self.img_box._apply_appearance_mode(self.img_box.cget('fg_color')), highlightthickness=0)
+        self.in_canvas = CanvasCTk(self.img_box)
         self.in_canvas.pack(fill='both', expand=True)
         self.ratio_var = ctk.StringVar(value='1:1')
         self.ratio_menu = ctk.CTkOptionMenu(self.img_box, variable=self.ratio_var, values=RATIO_OPTIONS, command=self.ratio_changed, width=104, height=34, corner_radius=6)
@@ -271,7 +271,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.output_container.grid(row=0, column=0, sticky='nsew', padx=10, pady=(10, 6))
         self.output_container.grid_rowconfigure(0, weight=1)
         self.output_container.grid_columnconfigure(0, weight=1)
-        self.out_canvas = ctk.CTkCanvas(self.output_container, bg=self.output_container._apply_appearance_mode(self.output_container.cget('fg_color')), highlightthickness=0)
+        self.out_canvas = CanvasCTk(self.output_container)
         self.out_canvas.grid(row=0, column=0, sticky='nsew')
         self.swap_btn = GradientBtn(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
         self.swap_btn.place(relx=1.0, x=-8, y=8, anchor='ne')

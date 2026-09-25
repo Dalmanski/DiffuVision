@@ -27,6 +27,23 @@ def _resolve_color(value):
         return value[1] if ctk.get_appearance_mode().lower() == 'dark' else value[0]
     return value
 
+def _canvas_theme():
+    canvas_theme = ctk.ThemeManager.theme.get('CTkCanvas', {})
+    return {
+        'bg': _resolve_color(canvas_theme.get('bg', '#000000')),
+        'highlightthickness': int(canvas_theme.get('highlightthickness', 0)),
+        'highlightbackground': _resolve_color(canvas_theme.get('highlightbackground', '#000000')),
+        'highlightcolor': _resolve_color(canvas_theme.get('highlightcolor', '#000000')),
+    }
+
+class CanvasCTk(ctk.CTkCanvas):
+    def __init__(self, master, **kwargs):
+        kwargs.update(_canvas_theme())
+        super().__init__(master, **kwargs)
+
+    def refresh_theme(self):
+        self.configure(**_canvas_theme())
+
 def _rgb(color):
     color = _resolve_color(color)
     color = str(color).lstrip('#')
