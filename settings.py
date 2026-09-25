@@ -4,7 +4,7 @@ import customtkinter as ctk
 from dotenv import dotenv_values, set_key
 from widgets.ctk_theme import configure_ctk_theme
 from widgets.centwin import center_window
-from widgets.ctk_utils import GradientButton
+from widgets.ctk_utils import GradientBtn
 from utils.config_manager import ConfigManager
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,10 +20,10 @@ class ArrayEditor(ctk.CTkFrame):
         self.selector.bind("<KeyRelease>", self.update_value)
         self.selector.bind("<FocusOut>", self.refresh)
 
-        self.add_button = GradientButton(self, text="+", width=34, command=self.add_value)
+        self.add_button = GradientBtn(self, text="+", width=34, height=34, command=self.add_value)
         self.add_button.grid(row=0, column=1, padx=3)
 
-        self.remove_button = GradientButton(self, text="-", width=34, fg_color="#514f59", hover_color="#3e3c45", command=self.remove_value)
+        self.remove_button = GradientBtn(self, text="-", width=34, height=34, fg_color="#514f59", hover_color="#3e3c45", command=self.remove_value)
         self.remove_button.grid(row=0, column=2, padx=(3, 0))
 
         self.refresh()
@@ -127,7 +127,7 @@ class SettingsPopup(ctk.CTkToplevel):
         self.title_label = ctk.CTkLabel(self.header, text="Environment Settings", font=ctk.CTkFont(size=20, weight="bold"))
         self.title_label.grid(row=0, column=0, padx=12, pady=12, sticky="w")
 
-        self.refresh_button = GradientButton(self.header, text="Refresh", width=90, command=self.load_env_files)
+        self.refresh_button = GradientBtn(self.header, text="Refresh", command=self.load_env_files)
         self.refresh_button.grid(row=0, column=1, padx=(6, 12), pady=12)
 
         self.scroll = ctk.CTkScrollableFrame(self)
@@ -141,10 +141,10 @@ class SettingsPopup(ctk.CTkToplevel):
         self.status = ctk.CTkLabel(self.footer, text="Ready", anchor="w")
         self.status.grid(row=0, column=0, padx=12, pady=10, sticky="w")
 
-        self.save_button = GradientButton(self.footer, text="Save", width=100, command=self.save_settings)
+        self.save_button = GradientBtn(self.footer, text="Save", command=self.save_settings)
         self.save_button.grid(row=0, column=1, padx=6, pady=10)
 
-        self.close_button = GradientButton(self.footer, text="Close", width=100, fg_color="#514f59", hover_color="#3e3c45", command=self.destroy)
+        self.close_button = GradientBtn(self.footer, text="Close", fg_color="#514f59", hover_color="#3e3c45", command=self.destroy)
         self.close_button.grid(row=0, column=2, padx=(0, 12), pady=10)
 
     def parse_value(self, value):
@@ -237,6 +237,6 @@ if __name__ == "__main__":
     root = ctk.CTk()
     root.geometry("900x600")
     root.title("App")
-    open_button = GradientButton(root, text="Open Settings", command=lambda: open_settings_popup(root))
+    open_button = GradientBtn(root, text="Open Settings", command=lambda: open_settings_popup(root))
     open_button.pack(padx=20, pady=20)
     root.mainloop()

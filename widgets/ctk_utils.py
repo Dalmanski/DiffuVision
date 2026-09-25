@@ -5,6 +5,8 @@ FONT_FAMILY = ctk.ThemeManager.theme['CTkFont']['family']
 FONT_SIZE = ctk.ThemeManager.theme['CTkFont']['size']
 FONT_WEIGHT = ctk.ThemeManager.theme['CTkFont']['weight']
 BTN_CORNER_RAD = ctk.ThemeManager.theme['CTkButton']['corner_radius']
+BTN_WIDTH = ctk.ThemeManager.theme['CTkButton'].get('width', 120)
+BTN_HEIGHT = ctk.ThemeManager.theme['CTkButton'].get('height', 28)
 
 def font(family=FONT_FAMILY, size=FONT_SIZE, weight=FONT_WEIGHT):
     return ctk.CTkFont(family=family, size=size, weight=weight)
@@ -26,7 +28,7 @@ def _rgb(color):
 def _darken(color, amount=0.28):
     return '#%02x%02x%02x' % tuple(max(0, int(channel * (1 - amount))) for channel in _rgb(color))
 
-class GradientButton(ctk.CTkFrame):
+class GradientBtn(ctk.CTkFrame):
     def __init__(self, master, text='', command=None, **kwargs):
         self._text_anchor = kwargs.pop('anchor', 'center')
         self._corner_radius = kwargs.setdefault('corner_radius', BTN_CORNER_RAD)
@@ -38,6 +40,8 @@ class GradientButton(ctk.CTkFrame):
         self._start = kwargs.pop('fg_color', _theme_color('fg_color'))
         self._end = kwargs.pop('hover_color', _darken(self._start))
         self._hovered = False
+        kwargs.setdefault('width', BTN_WIDTH)
+        kwargs.setdefault('height', BTN_HEIGHT)
         kwargs.setdefault('fg_color', 'transparent')
         super().__init__(master, **kwargs)
         self._label = ctk.CTkLabel(self, text=self._text, fg_color='transparent', text_color=self._text_color, font=self._font, compound='center', corner_radius=0)
@@ -119,6 +123,3 @@ class GradientButton(ctk.CTkFrame):
         if button_kwargs:
             self._render()
         return super().configure(**kwargs)
-
-def gradient_button(parent, text='', command=None, **kwargs):
-    return GradientButton(parent, text=text, command=command, **kwargs)

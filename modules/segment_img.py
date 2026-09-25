@@ -18,8 +18,6 @@ class SegmentImageMixin:
         self.clear_seg_btn.configure(state='normal' if self.original_image is not None else 'disabled')
         if self.manual_mode:
             self.manual_btn.configure(fg_color='#1f8f3a', hover_color='#176b2c')
-        else:
-            self.manual_btn.configure(fg_color='#21262D', hover_color='#30363D')
 
     def toggle_manual_segment_mode(self):
         if self.processing or self.model_loading or self.seg_loading or self.class_loading:

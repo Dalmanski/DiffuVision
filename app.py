@@ -14,7 +14,7 @@ from widgets.json_textbox import JSONTextBox
 from widgets.console_textbox import ConsoleTextBox, create_redirects
 from widgets.ctk_theme import configure_ctk_theme
 from widgets.crop_img import CropImageMixin
-from widgets.ctk_utils import GradientButton
+from widgets.ctk_utils import GradientBtn
 from widgets.gif_anim import GifAnimationMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
@@ -152,10 +152,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.quit()
         self.destroy()
 
-    @staticmethod
-    def gradient_button(parent, text, command=None, **kwargs):
-        return GradientButton(parent, text=text, command=command, **kwargs)
-
     def ui(self):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -173,11 +169,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.input_label.grid(row=0, column=0, sticky='w', padx=4, pady=(0, 4))
         self.mask_button_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
         self.mask_button_row.grid(row=0, column=1, sticky='e', padx=2, pady=(0, 4))
-        self.reload_btn = self.gradient_button(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled')
+        self.reload_btn = GradientBtn(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled')
         self.reload_btn.grid(row=0, column=0, sticky='e', padx=(0, 4))
-        self.manual_btn = self.gradient_button(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled')
+        self.manual_btn = GradientBtn(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled')
         self.manual_btn.grid(row=0, column=1, sticky='e', padx=4)
-        self.clear_seg_btn = self.gradient_button(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled')
+        self.clear_seg_btn = GradientBtn(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled')
         self.clear_seg_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
         self.img_box = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=680)
         self.left_frame.grid_rowconfigure(1, minsize=680, weight=0)
@@ -190,9 +186,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.ratio_var = ctk.StringVar(value='1:1')
         self.ratio_menu = ctk.CTkOptionMenu(self.img_box, variable=self.ratio_var, values=RATIO_OPTIONS, command=self.ratio_changed, width=104, height=34, corner_radius=6)
         self.ratio_menu.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.reset_btn = self.gradient_button(self.img_box, text='🖾', command=self.reset_crop, width=34, height=34)
+        self.reset_btn = GradientBtn(self.img_box, text='🖾', command=self.reset_crop, width=34, height=34)
         self.reset_btn.place(relx=1.0, x=-8, y=48, anchor='ne')
-        self.upload_btn = self.gradient_button(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
+        self.upload_btn = GradientBtn(self.left_frame, text='UPLOAD IMAGE', command=self.upload, height=40)
         self.upload_btn.grid(row=2, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.prompt_row = ctk.CTkFrame(self.left_frame, fg_color='transparent')
         self.prompt_row.grid(row=3, column=0, columnspan=2, sticky='ew', padx=2, pady=(7, 10))
@@ -218,7 +214,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.model_menu = ctk.CTkOptionMenu(self.cfg_box, variable=self.model_var, values=list(MODEL_OPTIONS.keys()), command=self.model_changed)
         self.model_menu.grid(row=1, column=1, sticky='ew', padx=2, pady=(0, 8))
         ctk.CTkLabel(self.cfg_box, text='LoRA:', anchor='w', width=100).grid(row=2, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
-        self.lora_menu = self.gradient_button(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w', height=34)
+        self.lora_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w', height=34)
         self.lora_menu.grid(row=2, column=1, sticky='ew', padx=2, pady=(0, 4))
         self.lora_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
         self.lora_panel.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
@@ -248,7 +244,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.config_row.grid_columnconfigure(1, weight=0)
         self.cfg_menu = ctk.CTkOptionMenu(self.config_row, values=[], command=self.config_changed)
         self.cfg_menu.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.autosave_btn = self.gradient_button(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
+        self.autosave_btn = GradientBtn(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.json = JSONTextBox(self.cfg_box, height=220, font_size=12, fg_color='#000000')
         self.json.grid(row=6, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
@@ -269,11 +265,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.generate_row.grid_columnconfigure(0, weight=0)
         self.generate_row.grid_columnconfigure(1, weight=1)
         self.generate_row.grid_columnconfigure(2, weight=0)
-        self.cfg_btn = self.gradient_button(self.generate_row, text='CONFIG', command=self.toggle_config, width=70, height=42)
+        self.cfg_btn = GradientBtn(self.generate_row, text='CONFIG', command=self.toggle_config, width=70, height=42)
         self.cfg_btn.grid(row=0, column=0, sticky='w', padx=(0, 5))
-        self.generate_btn = self.gradient_button(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
+        self.generate_btn = GradientBtn(self.generate_row, text='GENERATE', command=self.generate, state='disabled', height=42)
         self.generate_btn.grid(row=0, column=1, sticky='ew', padx=5)
-        self.chili_btn = self.gradient_button(self.generate_row, text='🌶', command=self.chili_generate, state='disabled', width=42, height=42)
+        self.chili_btn = GradientBtn(self.generate_row, text='🌶', command=self.chili_generate, state='disabled', width=42, height=42)
         self.chili_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=10)
@@ -285,7 +281,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.output_container.grid_columnconfigure(0, weight=1)
         self.out_canvas = ctk.CTkCanvas(self.output_container, bg='#000000', highlightthickness=0)
         self.out_canvas.grid(row=0, column=0, sticky='nsew')
-        self.swap_btn = self.gradient_button(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
+        self.swap_btn = GradientBtn(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
         self.swap_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
         self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
@@ -295,13 +291,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.save_clear_row.grid_columnconfigure(1, weight=0)
         self.save_clear_row.grid_columnconfigure(2, weight=0)
         self.save_clear_row.grid_columnconfigure(3, weight=0)
-        self.save_btn = self.gradient_button(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
+        self.save_btn = GradientBtn(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.cf_btn = self.gradient_button(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
+        self.cf_btn = GradientBtn(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
         self.cf_btn.grid(row=0, column=1, sticky='e', padx=5)
-        self.clear_btn = self.gradient_button(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
+        self.clear_btn = GradientBtn(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
-        self.settings_btn = self.gradient_button(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46)
+        self.settings_btn = GradientBtn(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46)
         self.settings_btn.grid(row=0, column=3, sticky='e', padx=(5, 0))
         self.in_canvas.bind('<Configure>', lambda e: self.show_input())
         self.in_canvas.bind('<ButtonPress-1>', self.start_crop)
