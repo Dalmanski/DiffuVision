@@ -14,7 +14,7 @@ def _env_value(name, default=''):
 	return value
 
 
-def configure_ctk_theme():
+def configure_ctk_theme(root=None):
 	themes_dir = Path(__file__).resolve().parent.parent / 'themes'
 	mode = _env_value('CTk_mode', 'system').lower()
 	theme = _env_value('CTk_theme', 'default.json')
@@ -26,6 +26,17 @@ def configure_ctk_theme():
 
 	ctk.set_appearance_mode(mode if mode in {'system', 'light', 'dark'} else 'system')
 	ctk.set_default_color_theme(str(theme_path))
+
+	if root is not None:
+		from widgets.ctk_utils import GradientBtn
+
+		def refresh(widget):
+			if isinstance(widget, GradientBtn):
+				widget.refresh_theme()
+			for child in widget.winfo_children():
+				refresh(child)
+
+		refresh(root)
 
 '''
 from widgets.ctk_theme import configure_ctk_theme

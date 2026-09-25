@@ -1,4 +1,4 @@
-import os, sys, json, time, threading, gc, subprocess
+import os, sys, json, time, threading, gc
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
@@ -142,15 +142,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
 
     def reload_after_settings(self):
         ConfigManager.load_env(BASE_DIR)
-        configure_ctk_theme()
-        self.after(50, self.restart_app)
-
-    def restart_app(self):
-        exe = str(Path(sys.executable).resolve())
-        app_path = str(Path(__file__).resolve())
-        subprocess.Popen([exe, app_path, *sys.argv[1:]], cwd=str(BASE_DIR))
-        self.quit()
-        self.destroy()
+        configure_ctk_theme(self)
 
     def ui(self):
         self.grid_rowconfigure(0, weight=1)
@@ -175,13 +167,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.manual_btn.grid(row=0, column=1, sticky='e', padx=4)
         self.clear_seg_btn = GradientBtn(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled')
         self.clear_seg_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
-        self.img_box = ctk.CTkFrame(self.left_frame, fg_color='#030303', corner_radius=0, height=680)
+        self.img_box = ctk.CTkFrame(self.left_frame, corner_radius=0, height=680)
         self.left_frame.grid_rowconfigure(1, minsize=680, weight=0)
         self.img_box.grid(row=1, column=0, columnspan=2, sticky='nsew', padx=2, pady=(0, 8))
         self.img_box.grid_propagate(False)
         self.img_box.grid_rowconfigure(0, weight=1)
         self.img_box.grid_columnconfigure(0, weight=1)
-        self.in_canvas = ctk.CTkCanvas(self.img_box, bg='#030303', highlightthickness=0)
+        self.in_canvas = ctk.CTkCanvas(self.img_box, bg=self.img_box._apply_appearance_mode(self.img_box.cget('fg_color')), highlightthickness=0)
         self.in_canvas.pack(fill='both', expand=True)
         self.ratio_var = ctk.StringVar(value='1:1')
         self.ratio_menu = ctk.CTkOptionMenu(self.img_box, variable=self.ratio_var, values=RATIO_OPTIONS, command=self.ratio_changed, width=104, height=34, corner_radius=6)
@@ -275,15 +267,15 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.right_frame.grid(row=0, column=1, sticky='nsew', padx=(5, 10), pady=10)
         self.right_frame.grid_rowconfigure(0, weight=1)
         self.right_frame.grid_columnconfigure(0, weight=1)
-        self.output_container = ctk.CTkFrame(self.right_frame, fg_color='#000000', corner_radius=6)
+        self.output_container = ctk.CTkFrame(self.right_frame, corner_radius=6)
         self.output_container.grid(row=0, column=0, sticky='nsew', padx=10, pady=(10, 6))
         self.output_container.grid_rowconfigure(0, weight=1)
         self.output_container.grid_columnconfigure(0, weight=1)
-        self.out_canvas = ctk.CTkCanvas(self.output_container, bg='#000000', highlightthickness=0)
+        self.out_canvas = ctk.CTkCanvas(self.output_container, bg=self.output_container._apply_appearance_mode(self.output_container.cget('fg_color')), highlightthickness=0)
         self.out_canvas.grid(row=0, column=0, sticky='nsew')
         self.swap_btn = GradientBtn(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
         self.swap_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0')
+        self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12))
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
         self.save_clear_row = ctk.CTkFrame(self.right_frame, fg_color='transparent')
         self.save_clear_row.grid(row=2, column=0, sticky='ew', padx=10, pady=(6, 10))

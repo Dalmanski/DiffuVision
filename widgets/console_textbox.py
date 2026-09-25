@@ -1,3 +1,5 @@
+import sys
+
 import customtkinter as ctk
 
 class ConsoleTextBox(ctk.CTkTextbox):
@@ -41,9 +43,10 @@ class ConsoleTextBox(ctk.CTkTextbox):
             pass
 
 class ConsoleRedirect:
-    def __init__(self, console, original=None):
+    def __init__(self, console, original=None, show_in_console=True):
         self.console = console
         self.original = original
+        self.show_in_console = show_in_console
         self.buffer = ""
 
     def write(self, text):
@@ -53,7 +56,7 @@ class ConsoleRedirect:
                 self.original.write(value)
             except Exception:
                 pass
-        if not value or '[DEBUG]' in value:
+        if not self.show_in_console or not value or '[DEBUG]' in value:
             return len(value)
         if '\r' in value:
             parts = value.split('\r')
@@ -76,7 +79,7 @@ class ConsoleRedirect:
                 self.original.flush()
             except Exception:
                 pass
-        if self.buffer.strip():
+        if self.show_in_console and self.buffer.strip():
             try:
                 self.console.log(self.buffer.rstrip())
             except Exception:
@@ -92,4 +95,4 @@ class ConsoleRedirect:
             return False
 
 def create_redirects(console):
-    return ConsoleRedirect(console), ConsoleRedirect(console)
+    return ConsoleRedirect(console, original=sys.stdout, show_in_console=True), ConsoleRedirect(console, original=sys.stderr, show_in_console=False)
