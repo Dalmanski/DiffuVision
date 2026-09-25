@@ -33,6 +33,20 @@ class ConfigManager:
         return parsed if isinstance(parsed, list) else None
 
     @staticmethod
+    def parse_json_dict(value):
+        text = str(value or '').strip().strip('"').strip("'")
+        if not (text.startswith('{') and text.endswith('}')):
+            return None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            try:
+                parsed = json.loads(text.replace('\\', '\\\\'))
+            except json.JSONDecodeError:
+                return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
     def _parse_env_value(value):
         return value.strip().strip('"').strip("'")
 
@@ -100,10 +114,23 @@ class ConfigManager:
                 resolved.append(str(path))
         return resolved
 
+    def discover_embeddings(self):
+        embeddings = self.parse_json_dict(self.read_env_file().get('SD_15_EMBEDDING', '')) or {}
+        resolved = {}
+        for raw_path, token in embeddings.items():
+            path = Path(str(raw_path).strip())
+            if not path.is_absolute():
+                path = self.base_dir / path
+            path = path.resolve(strict=False)
+            if path.exists() and path.suffix.lower() in {'.safetensors', '.pt', '.bin'}:
+                resolved[str(path)] = str(token).strip()
+        return resolved
+
     def read_runtime_settings(self, model_dir):
         values = self.read_env_file()
         models, default_model = self.discover_models(model_dir)
         loras = self.discover_loras()
+        embeddings = self.discover_embeddings()
         config_value = values.get('JSON_config', '').replace('\\', '/')
         if config_value:
             start_config = Path(config_value)
@@ -113,7 +140,7 @@ class ConfigManager:
             start_config = self.default_json
         autosave_value = values.get('JSON_autosave')
         autosave = True if autosave_value is None else autosave_value.strip().lower() in ('1', 'true', 'yes', 'on')
-        return models, default_model, loras, start_config, autosave
+        return models, default_model, loras, embeddings, start_config, autosave
 
     def write_env_key(self, key, value):
         lines = self._read_env_lines()

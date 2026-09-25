@@ -102,6 +102,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.config = {}
         self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
         self.loaded_loras = []
+        self.loaded_embeddings = set()
         self.recommended_ratio_sizes = RECOMMENDED_RATIO_SIZES
         self.show_orig = False
         self.load_env()
@@ -141,8 +142,19 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         popup.on_save = self.reload_after_settings
 
     def reload_after_settings(self):
+        previous_model = self.model_name
+        previous_loras = set(getattr(self, 'lora_paths', []))
+        previous_embeddings = dict(getattr(self, 'embedding_paths', {}))
         ConfigManager.load_env(BASE_DIR)
         configure_ctk_theme(self)
+        self.load_env()
+        self.model_menu.configure(values=list(MODEL_OPTIONS))
+        self.model_var.set(DEFAULT_MODEL)
+        self.refresh_lora_menu()
+        resources_changed = previous_loras != set(self.lora_paths) or previous_embeddings != self.embedding_paths
+        if self.models_ready and not self.processing and DEFAULT_MODEL and (previous_model != DEFAULT_MODEL or resources_changed):
+            self.models_ready = False
+            self.model_changed(DEFAULT_MODEL)
 
     def ui(self):
         self.grid_rowconfigure(0, weight=1)
@@ -208,12 +220,18 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         ctk.CTkLabel(self.cfg_box, text='LoRA:', anchor='w', width=100).grid(row=2, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
         self.lora_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w', height=34)
         self.lora_menu.grid(row=2, column=1, sticky='ew', padx=2, pady=(0, 4))
+        ctk.CTkLabel(self.cfg_box, text='EMBEDDING:', anchor='w', width=100).grid(row=4, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
+        self.embedding_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_embedding_menu, anchor='w', height=34)
+        self.embedding_menu.grid(row=4, column=1, sticky='ew', padx=2, pady=(0, 4))
         self.lora_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
         self.lora_panel.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
         self.lora_panel.grid_remove()
+        self.embedding_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
+        self.embedding_panel.grid(row=5, column=1, sticky='ew', padx=2, pady=(0, 8))
+        self.embedding_panel.grid_remove()
         self.refresh_lora_menu()
         self.meta_row = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.meta_row.grid(row=4, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.meta_row.grid(row=6, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.meta_row.grid_columnconfigure(0, weight=0)
         self.meta_row.grid_columnconfigure(1, weight=1)
         self.meta_row.grid_columnconfigure(2, weight=0)
@@ -229,20 +247,20 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         ctk.CTkLabel(self.meta_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
         self.age_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.age, values=['NONE', *AGE_CLASS], command=self.prompt_sel_changed)
         self.age_menu.grid(row=0, column=5, sticky='ew', padx=(0, 2))
-        ctk.CTkLabel(self.cfg_box, text='JSON CONFIG:', anchor='w', width=100).grid(row=5, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
+        ctk.CTkLabel(self.cfg_box, text='JSON CONFIG:', anchor='w', width=100).grid(row=7, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.config_row.grid(row=5, column=1, sticky='ew', padx=2, pady=(0, 8))
+        self.config_row.grid(row=7, column=1, sticky='ew', padx=2, pady=(0, 8))
         self.config_row.grid_columnconfigure(0, weight=1)
         self.config_row.grid_columnconfigure(1, weight=0)
         self.cfg_menu = ctk.CTkOptionMenu(self.config_row, values=[], command=self.config_changed)
         self.cfg_menu.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.autosave_btn = GradientBtn(self.config_row, text='AUTOSAVE: ON', command=self.toggle_autosave, height=38, width=105)
+        self.autosave_btn = GradientBtn(self.config_row, text='💾 ON', command=self.toggle_autosave, height=38, width=105)
         self.autosave_btn.grid(row=0, column=1, sticky='e', padx=(5, 0))
         self.json = JSONTextBox(self.cfg_box, height=220, font_size=12, fg_color='#000000')
-        self.json.grid(row=6, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
+        self.json.grid(row=8, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 8))
         self.json.set_change_callback(self.json_changed)
         self.out_opts = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
-        self.out_opts.grid(row=7, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
+        self.out_opts.grid(row=9, column=0, columnspan=2, sticky='ew', padx=2, pady=(0, 6))
         self.out_opts.grid_columnconfigure(0, weight=1)
         self.out_opts.grid_columnconfigure(1, weight=1)
         self.esrgan_cb = ctk.CTkCheckBox(self.out_opts, text='Enhance output image', variable=self.esrgan_out)
@@ -338,24 +356,34 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.cfg_box.grid_remove()
             self.cfg_btn.configure(fg_color=ctk.ThemeManager.theme['CTkButton']['fg_color'], hover_color=ctk.ThemeManager.theme['CTkButton']['hover_color'])
 
-    def refresh_lora_menu(self):
-        if not hasattr(self, 'lora_panel'):
+    def refresh_multi_menu(self, paths, selected, panel_name, button, label, callback):
+        if not hasattr(self, panel_name):
             return
-        for widget in self.lora_panel.winfo_children():
+        panel = getattr(self, panel_name)
+        for widget in panel.winfo_children():
             widget.destroy()
-        self.lora_vars = {}
-        for row, path in enumerate(self.lora_paths):
-            variable = ctk.BooleanVar(value=path in self.selected_loras)
-            self.lora_vars[path] = variable
-            ctk.CTkCheckBox(self.lora_panel, text=Path(path).stem, variable=variable, command=lambda path=path, variable=variable: self.lora_changed(path, variable)).grid(row=row, column=0, sticky='w', padx=4, pady=2)
-        selected = sum(variable.get() for variable in self.lora_vars.values())
-        self.lora_menu.configure(text=f'{selected} LoRA selected [Select]')
+        variables = {}
+        for row, path in enumerate(paths):
+            variable = ctk.BooleanVar(value=path in selected)
+            variables[path] = variable
+            ctk.CTkCheckBox(panel, text=Path(path).stem, variable=variable, command=lambda path=path, variable=variable: callback(path, variable)).grid(row=row, column=0, sticky='w', padx=4, pady=2)
+        button.configure(text=f'{sum(variable.get() for variable in variables.values())} {label} selected [Select]')
+
+    def refresh_lora_menu(self):
+        self.refresh_multi_menu(self.lora_paths, self.selected_loras, 'lora_panel', self.lora_menu, 'LoRA', self.lora_changed)
+        self.refresh_multi_menu(self.embedding_paths, self.selected_embeddings, 'embedding_panel', self.embedding_menu, 'Embedding', self.embedding_changed)
 
     def toggle_lora_menu(self):
-        if self.lora_panel.winfo_ismapped():
-            self.lora_panel.grid_remove()
+        self.toggle_multi_menu(self.lora_panel)
+
+    def toggle_multi_menu(self, panel):
+        if panel.winfo_ismapped():
+            panel.grid_remove()
         else:
-            self.lora_panel.grid()
+            panel.grid()
+
+    def toggle_embedding_menu(self):
+        self.toggle_multi_menu(self.embedding_panel)
 
     def lora_changed(self, path, variable):
         if variable.get():
@@ -363,6 +391,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         else:
             self.selected_loras.discard(path)
         self.apply_lora_selection()
+        self.refresh_lora_menu()
+
+    def embedding_changed(self, path, variable):
+        if variable.get():
+            self.selected_embeddings.add(path)
+        else:
+            self.selected_embeddings.discard(path)
         self.refresh_lora_menu()
 
     def apply_lora_selection(self):
@@ -427,8 +462,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
 
     def load_env(self):
         global MODEL_OPTIONS, DEFAULT_MODEL
-        MODEL_OPTIONS, DEFAULT_MODEL, self.lora_paths, self.start_cfg, autosave = self.config_manager.read_runtime_settings(MODEL_DIR)
+        MODEL_OPTIONS, DEFAULT_MODEL, self.lora_paths, self.embedding_paths, self.start_cfg, autosave = self.config_manager.read_runtime_settings(MODEL_DIR)
         self.selected_loras = set(self.lora_paths)
+        self.selected_embeddings = set(self.embedding_paths)
         if not MODEL_OPTIONS:
             print(f'Missing inpainting models: no .safetensors files found in {MODEL_DIR} or configured SD_INPAINT_MODEL paths.')
         self.autosave.set(autosave)
@@ -490,9 +526,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if not hasattr(self, 'autosave_btn'):
             return
         if self.autosave.get():
-            self.autosave_btn.configure(text='AUTOSAVE: ON', fg_color='#1f8f3a', hover_color='#176b2c')
+            self.autosave_btn.configure(text='💾 ON', fg_color='#1f8f3a', hover_color='#176b2c')
         else:
-            self.autosave_btn.configure(text='AUTOSAVE: OFF', fg_color='#666666', hover_color='#555555')
+            self.autosave_btn.configure(text='💾 OFF', fg_color='#666666', hover_color='#555555')
 
     def cleanup_gpu(self):
         try:
@@ -612,6 +648,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             print(f'Loading {model_name}')
             pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
             lora_paths = self.config_manager.discover_loras()
+            embedding_paths = self.config_manager.discover_embeddings()
             loaded_loras = []
             for index, lora_path in enumerate(lora_paths):
                 lora_name = f'lora_{index}'
@@ -626,6 +663,12 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 pipe.set_adapters(names)
             elif loaded_loras:
                 pipe.disable_lora()
+            for embedding_path, token in embedding_paths.items():
+                try:
+                    pipe.load_textual_inversion(embedding_path, token=token)
+                    print(f'Embedding loaded: {embedding_path}')
+                except Exception as error:
+                    print(f'Embedding not loaded: {embedding_path} ({error})')
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(DEVICE)
             pipe.set_progress_bar_config(disable=True)
@@ -638,6 +681,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.pipe = pipe
             self.lora_paths = lora_paths
             self.loaded_loras = loaded_loras
+            self.embedding_paths = embedding_paths
+            self.loaded_embeddings = set(embedding_paths)
             self.model_name = model_name
             self.dtype = dtype
             self.cleanup_gpu()
@@ -889,6 +934,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             seed = int(config.get('seed', -1))
             cfg_rescale = float(config.get('cfg_rescale'))
             positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, selected_age, apply_class_gender)
+            embedding_tokens = [self.embedding_paths[path] for path in self.selected_embeddings if path in self.loaded_embeddings]
+            if embedding_tokens:
+                negative_prompt = ', '.join((*embedding_tokens, negative_prompt)) if negative_prompt else ', '.join(embedding_tokens)
             if source is None:
                 print('Preprocessing...')
                 source = self.prep_input(original_image)

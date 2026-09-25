@@ -138,6 +138,16 @@ SD_15_LoRA_MODEL='["C:/Users/YourName/Downloads/detail_tweaker.safetensors"]'
 
 > **Important:** The app reads LoRA paths from `SD_15_LoRA_MODEL` in `.env`. If you want the LoRA to load, make sure the file exists and the path is correct.
 
+## Add SD 1.5 Embeddings (Optional but recommended to fix broken arms and hands)
+
+Download [EasyNegative](https://civitai.com/models/7808/easynegative?modelVersionId=9208) and [negative_hand-neg](https://civitai.com/models/56519/negativehand-negative-embedding), then add their paths and trigger tokens to `.env`:
+
+```env
+SD_15_EMBEDDING='{"model/Embedding/easynegative.safetensors": "EasyNegative", "model/Embedding/negative_hand-neg.pt": "negative_hand"}'
+```
+
+The files must exist at the specified paths for the embeddings to load.
+
 ## 4. Download and Install SAM 2.1
 
 Open the **VS Code terminal** inside your DiffuVision project folder and run these commands **one at a time**:
@@ -196,6 +206,6 @@ This project is actively under development and does not currently have a standal
 * lazymixRealAmateur
 * realisticVisionV60B1
 ### LoRA
-* [detail-tweaker-lora.safetensors](https://civitai.com/models/58390)
 * [hourglassv01.safetensors](https://civitai.com/models/129130)
+* [detail-tweaker-lora.safetensors](https://civitai.com/models/58390)
 * [perfectb.safetensors](https://civitai.com/models/662593)

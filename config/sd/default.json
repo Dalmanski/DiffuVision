@@ -1,6 +1,6 @@
 {
-    "positive_prompt": "wearing black shirt",
-    "negative_prompt": "(hands:1.25), low quality, bad anatomy, deformed, extra limbs",
+    "positive_prompt": "wearing cool black shirt",
+    "negative_prompt": "easynegative, negative_hand, low quality",
     "seg_pos_prompt": "pants, @fashn: [top, belt, skirt, dress, torso]",
     "seg_neg_prompt": "",
     "steps": 35,
@@ -10,5 +10,6 @@
     "cfg_rescale": 0,
     "mask_blur": 3,
     "mask_thickness": 5,
-    "c": "lowest precise: steps=23 and steps=26, default steps=32"
+    "c": "lowest precise: steps=23 and steps=26, default steps=32",
+    "c1": "'easynegative' and 'negative_hand' work as embeddings, read my GitHub for more details"
 }

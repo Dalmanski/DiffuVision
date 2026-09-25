@@ -84,6 +84,75 @@ class ArrayEditor(ctk.CTkFrame):
         self.update_value()
         return self.values
 
+class DictionaryEditor(ctk.CTkFrame):
+    def __init__(self, parent, values):
+        super().__init__(parent, fg_color="transparent")
+        self.values = {str(key): str(value) for key, value in values.items()}
+        self.selected = 0
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.selector = ctk.CTkComboBox(self, values=self.display_values(), command=self.select_value)
+        self.selector.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+        self.value_entry = ctk.CTkEntry(self)
+        self.value_entry.grid(row=0, column=1, padx=(0, 6), sticky="ew")
+        self.value_entry.bind("<KeyRelease>", self.update_value)
+        self.value_entry.bind("<FocusOut>", self.refresh)
+        self.add_button = GradientBtn(self, text="+", width=34, height=34, command=self.add_value)
+        self.add_button.grid(row=0, column=2, padx=3)
+        self.remove_button = GradientBtn(self, text="-", width=34, height=34, fg_color="#514f59", hover_color="#3e3c45", command=self.remove_value)
+        self.remove_button.grid(row=0, column=3, padx=(3, 0))
+        self.refresh()
+
+    def display_values(self):
+        return list(self.values) or [""]
+
+    def update_value(self, event=None):
+        keys = list(self.values)
+        if keys and 0 <= self.selected < len(keys):
+            self.values[keys[self.selected]] = self.value_entry.get()
+
+    def refresh(self, event=None):
+        current = self.selector.get()
+        keys = list(self.values)
+        self.selector.configure(values=self.display_values())
+        if keys:
+            self.selected = keys.index(current) if current in keys else max(0, min(self.selected, len(keys) - 1))
+            self.selector.set(keys[self.selected])
+            self.value_entry.delete(0, "end")
+            self.value_entry.insert(0, self.values[keys[self.selected]])
+        else:
+            self.selected = 0
+            self.selector.set("")
+            self.value_entry.delete(0, "end")
+
+    def add_value(self):
+        self.update_value()
+        key = f"key_{len(self.values) + 1}"
+        self.values[key] = ""
+        self.selected = len(self.values) - 1
+        self.refresh()
+        self.value_entry.focus_set()
+
+    def remove_value(self):
+        self.update_value()
+        keys = list(self.values)
+        if not keys:
+            return
+        self.values.pop(keys[self.selected])
+        self.selected = max(0, min(self.selected, len(self.values) - 1))
+        self.refresh()
+
+    def select_value(self, value):
+        self.update_value()
+        keys = list(self.values)
+        if value in keys:
+            self.selected = keys.index(value)
+        self.refresh()
+
+    def get_values(self):
+        self.update_value()
+        return self.values
+
 class BooleanEditor(ctk.CTkOptionMenu):
     def __init__(self, parent, value):
         super().__init__(parent, values=["True", "False"])
@@ -153,6 +222,9 @@ class SettingsPopup(ctk.CTkToplevel):
         text = value.strip()
         if text.lower() in ("true", "false"):
             return "bool", text.title()
+        parsed = ConfigManager.parse_json_dict(text)
+        if parsed is not None:
+            return "dict", parsed
         parsed = ConfigManager.parse_json_list(text)
         if parsed is not None:
             return "list", parsed
@@ -194,6 +266,8 @@ class SettingsPopup(ctk.CTkToplevel):
 
                 if value_type == "list":
                     widget = ArrayEditor(section, parsed)
+                elif value_type == "dict":
+                    widget = DictionaryEditor(section, parsed)
                 elif value_type == "bool":
                     widget = ctk.CTkOptionMenu(section, values=["True", "False"])
                     widget.set(parsed)
@@ -215,7 +289,7 @@ class SettingsPopup(ctk.CTkToplevel):
 
         for env_file, file_entries in self.entries.items():
             for key, (value_type, widget) in file_entries.items():
-                if value_type == "list":
+                if value_type in {"list", "dict"}:
                     value = json.dumps(widget.get_values(), ensure_ascii=False)
                 else:
                     value = widget.get()
