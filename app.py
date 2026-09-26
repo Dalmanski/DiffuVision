@@ -20,7 +20,7 @@ from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
 from utils.dupfilename import prompt_save_path
-from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET, RECOMMENDED_RATIO_SIZES
+from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET
 
 BASE_DIR = Path(__file__).resolve().parent
 ConfigManager.load_env(BASE_DIR)
@@ -103,7 +103,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.config_manager = ConfigManager(BASE_DIR, DEFAULT_JSON)
         self.loaded_loras = []
         self.loaded_embeddings = set()
-        self.recommended_ratio_sizes = RECOMMENDED_RATIO_SIZES
         self.show_orig = False
         self.load_env()
         self.model_var.set(DEFAULT_MODEL)
@@ -879,15 +878,14 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if mask is None:
             self.mask_src = None
         elif self.mask_src == 'manual':
-            print('Manual segment available • skipping automatic segmentation')
+            print('Manual segment available • skipping auto segment')
         elif self.mask_src == 'auto':
-            print('Automatic segment available • reusing existing mask')
+            print('Auto segment available • reusing existing mask')
         else:
-            print('Existing mask available • skipping automatic segmentation')
+            print('Existing mask available • skipping auto segment')
         original_image = self.original_image.copy()
         crop_box = self.get_effective_crop_box()
         config = dict(config_override) if config_override is not None else dict(self.config)
-        model_name = str(self.model_name or self.model_var.get())
         selected_class = self.img_cls.get()
         selected_gender = self.gender.get()
         selected_age = self.age.get()
@@ -914,7 +912,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.show_output()
         print(f'Generation {generation_id} start')
         self.after(0, self.update_gen_state)
-        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
+        threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
         return classify_image(file_path)
@@ -926,7 +924,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             mask = mask.resize(base.size, Image.Resampling.NEAREST)
         return Image.composite(generated, base, mask).convert('RGB')
 
-    def worker(self, source, mask, original_image, crop_box, config, model_name, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
+    def worker(self, source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
         try:
             steps = int(config.get('steps'))
             cfg = float(config.get('cfg'))
@@ -945,7 +943,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             if not self.has_valid_mask(mask):
                 self.seg_loading = True
                 self.after(0, self.update_crop_state)
-                print('No segment is present on the input preview • running automatic segmentation...')
+                print('No input preview segment found • running auto segment...')
                 mask = self.make_mask(source, config)
                 self.mask_image = mask.copy()
                 self.mask_src = 'auto'

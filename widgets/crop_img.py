@@ -1,15 +1,6 @@
-import math
 from PIL import Image
 
 class CropImageMixin:
-    def set_recommended_ratio(self, image):
-        width, height = image.size
-        aspect = width / height
-        ratio_sizes = self.recommended_ratio_sizes
-        choice = min(ratio_sizes, key=lambda key: abs(math.log(aspect / (ratio_sizes[key][0] / ratio_sizes[key][1]))))
-        self.ratio_var.set(choice)
-        self.crop_box = self.crop_to_ratio(choice)
-
     def crop_to_ratio(self, choice):
         if self.original_image is None:
             return 0.0, 0.0, 1.0, 1.0
