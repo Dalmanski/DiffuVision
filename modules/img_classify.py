@@ -12,11 +12,11 @@ ANIME = 'anime'
 THREE_D = '3d'
 CARTOON = 'cartoon'
 CLASS_NAMES = [REAL, ANIME, THREE_D, CARTOON]
-IMAGE_CLASS = ['NONE', *CLASS_NAMES]
+image = ['NONE', *CLASS_NAMES]
 
 MALE = 'male'
 FEMALE = 'female'
-GENDER_CLASS = ['NONE', MALE, FEMALE]
+gender = ['NONE', MALE, FEMALE]
 GENDER_NAMES = [MALE, FEMALE]
 IMAGE_PROMPT = f'{REAL}, {ANIME}, {CARTOON}, or {THREE_D} image'
 GENDER_PROMPTS = [f'a {IMAGE_PROMPT} of a boy or male character', f'a {IMAGE_PROMPT} of a girl or female character']
@@ -27,8 +27,8 @@ YOUTH = 'young adult'
 ADULT = 'adult'
 MIDLIFE = 'middle-aged'
 OLD = 'elderly'
-AGE_CLASS = [CHILD, TEEN, YOUTH, ADULT, MIDLIFE, OLD]
-AGE_PROMPTS = [f'a {IMAGE_PROMPT} of a {age} adult' if age in (MIDLIFE, OLD) else f'a {IMAGE_PROMPT} of a {age}' for age in AGE_CLASS]
+age = [CHILD, TEEN, YOUTH, ADULT, MIDLIFE, OLD]
+AGE_PROMPTS = [f'a {IMAGE_PROMPT} of a {age_name} adult' if age_name in (MIDLIFE, OLD) else f'a {IMAGE_PROMPT} of a {age_name}' for age_name in age]
 CLASS_PROMPTS = {
     REAL: ['a real photograph', 'a real-life scene', 'a camera photo of a real person'],
     ANIME: ['anime artwork', 'Japanese anime illustration', 'cartoon anime style'],
@@ -97,4 +97,4 @@ def predict_gender(image_path):
 
 def predict_age(image_path):
     index, confidence = _predict(image_path, AGE_EMBEDDINGS)
-    return AGE_CLASS[index], confidence
+    return age[index], confidence

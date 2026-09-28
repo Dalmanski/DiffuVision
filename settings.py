@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import customtkinter as ctk
 from dotenv import dotenv_values, set_key
-from widgets.ctk_theme import configure_ctk_theme
+from widgets.ctk_theme import ConfigCTkTheme
 from widgets.centwin import center_window
 from widgets.ctk_utils import GradientBtn
 from utils.config_manager import ConfigManager
@@ -307,7 +307,7 @@ def open_settings_popup(parent):
     return popup
 
 if __name__ == "__main__":
-    configure_ctk_theme()
+    ConfigCTkTheme()
     root = ctk.CTk()
     root.geometry("900x600")
     root.title("App")

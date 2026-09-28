@@ -42,6 +42,9 @@ class ConsoleTextBox(ctk.CTkTextbox):
         except Exception:
             pass
 
+    def create_redirects(self):
+        return ConsoleRedirect(self, original=sys.stdout, show_in_console=True), ConsoleRedirect(self, original=sys.stderr, show_in_console=False)
+
 class ConsoleRedirect:
     def __init__(self, console, original=None, show_in_console=True):
         self.console = console
@@ -93,6 +96,3 @@ class ConsoleRedirect:
             return self.original.isatty()
         except Exception:
             return False
-
-def create_redirects(console):
-    return ConsoleRedirect(console, original=sys.stdout, show_in_console=True), ConsoleRedirect(console, original=sys.stderr, show_in_console=False)

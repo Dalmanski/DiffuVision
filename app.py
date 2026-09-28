@@ -7,12 +7,12 @@ import numpy as np, torch
 import torchvision.transforms.functional as TF
 sys.modules.setdefault('torchvision.transforms.functional_tensor', TF)
 from diffusers import StableDiffusionInpaintPipeline, DPMSolverMultistepScheduler
-from modules.img_classify import AGE_CLASS, GENDER_CLASS, IMAGE_CLASS, classify_image, predict_age, predict_gender
+import modules.img_classify as img_classify
 from modules.upscale_img import enhance
 from modules.segment_img import SegmentImageMixin
 from widgets.json_textbox import JSONTextBox
-from widgets.console_textbox import ConsoleTextBox, create_redirects
-from widgets.ctk_theme import configure_ctk_theme
+from widgets.console_textbox import ConsoleTextBox
+from widgets.ctk_theme import ConfigCTkTheme
 from widgets.crop_img import CropImageMixin
 from widgets.ctk_utils import CanvasCTk, GradientBtn
 from widgets.gif_anim import GifAnimationMixin
@@ -20,11 +20,11 @@ from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image
 from utils.dupfilename import prompt_save_path
-from modules.sd_ideal import SDIdealImageMixin, OUTPUT_TARGET
+from modules.sd_ideal import SDIdealImageMixin
 
 BASE_DIR = Path(__file__).resolve().parent
 ConfigManager.load_env(BASE_DIR)
-configure_ctk_theme()
+ConfigCTkTheme()
 MODEL_DIR = BASE_DIR / 'model'
 DEFAULT_JSON = BASE_DIR / 'config/sd/default.json'
 CHILI_BIN = BASE_DIR / 'config/sd/chili.bin'
@@ -108,7 +108,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.model_var.set(DEFAULT_MODEL)
         self.protocol('WM_DELETE_WINDOW', self.close_app)
         self.ui()
-        self.stdout_redirect, self.stderr_redirect = create_redirects(self.console)
+        self.stdout_redirect, self.stderr_redirect = self.console.create_redirects()
         sys.stdout = self.stdout_redirect
         sys.stderr = self.stderr_redirect
         self.after(100, lambda: self.state('zoomed'))
@@ -145,7 +145,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         previous_loras = set(getattr(self, 'lora_paths', []))
         previous_embeddings = dict(getattr(self, 'embedding_paths', {}))
         ConfigManager.load_env(BASE_DIR)
-        configure_ctk_theme(self)
+        ConfigCTkTheme(self)
         self.load_env()
         self.model_menu.configure(values=list(MODEL_OPTIONS))
         self.model_var.set(DEFAULT_MODEL)
@@ -238,13 +238,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.meta_row.grid_columnconfigure(4, weight=0)
         self.meta_row.grid_columnconfigure(5, weight=1)
         ctk.CTkLabel(self.meta_row, text='IMAGE CLASS:', anchor='w', width=100).grid(row=0, column=0, sticky='w', padx=(2, 8))
-        self.image_class_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.img_cls, values=IMAGE_CLASS, command=self.prompt_sel_changed)
+        self.image_class_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.img_cls, values=img_classify.image, command=self.prompt_sel_changed)
         self.image_class_menu.grid(row=0, column=1, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.meta_row, text='GENDER:', anchor='w', width=75).grid(row=0, column=2, sticky='w', padx=(2, 8))
-        self.gender_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.gender, values=GENDER_CLASS, command=self.prompt_sel_changed)
+        self.gender_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.gender, values=img_classify.gender, command=self.prompt_sel_changed)
         self.gender_menu.grid(row=0, column=3, sticky='ew', padx=(0, 8))
         ctk.CTkLabel(self.meta_row, text='AGE:', anchor='w', width=55).grid(row=0, column=4, sticky='w', padx=(2, 8))
-        self.age_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.age, values=['NONE', *AGE_CLASS], command=self.prompt_sel_changed)
+        self.age_menu = ctk.CTkOptionMenu(self.meta_row, variable=self.age, values=['NONE', *img_classify.age], command=self.prompt_sel_changed)
         self.age_menu.grid(row=0, column=5, sticky='ew', padx=(0, 2))
         ctk.CTkLabel(self.cfg_box, text='JSON CONFIG:', anchor='w', width=100).grid(row=7, column=0, sticky='w', padx=(4, 8), pady=(0, 8))
         self.config_row = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
@@ -701,19 +701,19 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.schedule(print, f'Model Error: {e}')
 
     def set_img_class(self, classification):
-        best_class = self.normalize_choice(classification.get('best_class', ''), IMAGE_CLASS)
-        if best_class not in IMAGE_CLASS:
-            best_class = IMAGE_CLASS[1]
+        best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
+        if best_class not in img_classify.image:
+            best_class = img_classify.image[1]
         self.img_cls.set(best_class)
         self.image_class_menu.configure(state='normal')
 
     def set_gender(self, result):
-        detected_gender = self.normalize_choice(result[0], GENDER_CLASS)
+        detected_gender = self.normalize_choice(result[0], img_classify.gender)
         self.gender.set(detected_gender)
         self.gender_menu.configure(state='normal')
 
     def set_age(self, result):
-        detected_age = self.normalize_choice(result[0], ['NONE', *AGE_CLASS])
+        detected_age = self.normalize_choice(result[0], ['NONE', *img_classify.age])
         self.age.set(detected_age)
         self.age_menu.configure(state='normal')
 
@@ -735,17 +735,17 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             classification = self.classify_input_image(file_path)
             self.cls_res = classification
             self.schedule(self.set_img_class, classification)
-            gender_result = predict_gender(file_path)
+            gender_result = img_classify.predict_gender(file_path)
             self.gender_res = gender_result
             self.schedule(self.set_gender, gender_result)
-            age_result = predict_age(file_path)
+            age_result = img_classify.predict_age(file_path)
             self.cleanup_gpu()
             self.age_res = age_result
             self.schedule(self.set_age, age_result)
-            best_class = self.normalize_choice(classification.get('best_class', ''), IMAGE_CLASS)
-            best_class = best_class if best_class in IMAGE_CLASS else IMAGE_CLASS[1]
-            detected_gender = self.normalize_choice(gender_result[0], GENDER_CLASS)
-            detected_age = self.normalize_choice(age_result[0], ['NONE', *AGE_CLASS])
+            best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
+            best_class = best_class if best_class in img_classify.image else img_classify.image[1]
+            detected_gender = self.normalize_choice(gender_result[0], img_classify.gender)
+            detected_age = self.normalize_choice(age_result[0], ['NONE', *img_classify.age])
             print(f'Class: {best_class.upper()}, Gender: {detected_gender.upper()}, Age: {detected_age.upper()}')
             print('Classification finished')
             self.schedule(self.set_widget_state, 'normal', self.image_class_menu, self.gender_menu, self.age_menu)
@@ -817,11 +817,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if not apply_class_gender:
             return positive_prompt, negative_prompt
         class_prompts = {'NONE': ('', '')}
-        for class_name in IMAGE_CLASS[1:]:
-            class_prompts[class_name] = (class_name, ', '.join(other for other in IMAGE_CLASS[1:] if other != class_name))
-        selected_class = self.normalize_choice(selected_class, IMAGE_CLASS)
-        selected_gender = self.normalize_choice(selected_gender, GENDER_CLASS)
-        selected_age = self.normalize_choice(selected_age, ['NONE', *AGE_CLASS])
+        for class_name in img_classify.image[1:]:
+            class_prompts[class_name] = (class_name, ', '.join(other for other in img_classify.image[1:] if other != class_name))
+        selected_class = self.normalize_choice(selected_class, img_classify.image)
+        selected_gender = self.normalize_choice(selected_gender, img_classify.gender)
+        selected_age = self.normalize_choice(selected_age, ['NONE', *img_classify.age])
         gender_append = '' if selected_gender == 'NONE' else selected_gender
         age_append = '' if selected_age == 'NONE' else selected_age
         class_positive, class_negative = class_prompts.get(selected_class, ('', ''))
@@ -915,7 +915,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
     def classify_input_image(self, file_path):
-        return classify_image(file_path)
+        return img_classify.classify_image(file_path)
 
     def composite_mask(self, base, generated, mask):
         if generated.size != base.size:
@@ -991,7 +991,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             del result
             generated = self.composite_mask(init, generated, mask)
             if esrgan_output:
-                generated = enhance(generated, output=True, logger=self.console.log, output_target=OUTPUT_TARGET)
+                generated = enhance(generated, output=True, logger=self.console.log)
             self.check_stop_requested()
             if full_image_output:
                 final_image = self.overlay_generated_crop(original_image, generated, crop_box)
