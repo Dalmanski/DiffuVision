@@ -19,14 +19,13 @@ omegaconf==2.3.1
 opencv_contrib_python==5.0.0.93
 opencv_python==5.0.0.93
 pandas==3.0.6
-peft==0.17.0
 Pillow==12.3.0
 pycocotools==2.0.11
 python-dotenv==1.2.3
 realesrgan==0.3.0
 rembg==2.0.85
 Requests==2.34.2
-setuptools==81.0.0
+setuptools==84.0.0
 scikit-image==0.24.0
 strawberry==3.0
 submitit==1.5.4

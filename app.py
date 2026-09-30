@@ -674,7 +674,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             pipe.enable_attention_slicing()
             if DEVICE == 'cuda':
                 try:
-                    pipe.enable_vae_slicing()
+                    pipe.vae.enable_slicing()
                 except Exception:
                     pass
             self.pipe = pipe
@@ -1129,12 +1129,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def save_compare(self):
         if self.original_image is None or self.output_image is None:
             return
+        comparison_image = self.original_image if self.full_out.get() else (self.sd_input_image or self.original_image)
         path = prompt_save_path('Save comparison image', f'{Path(self.img_name or "image").stem}_DiffuVision_CF', self.input_path, self.last_dir)
         if path is None:
             return
         self.last_dir = path.parent
         try:
-            original = self.original_image.convert('RGB')
+            original = comparison_image.convert('RGB')
             output = self.output_image.convert('RGB')
             target_height = max(original.height, output.height)
             left_width = int(original.width * target_height / original.height)
