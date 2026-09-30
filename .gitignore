@@ -19,6 +19,7 @@ model/weights/
 # External dependencies / embedded repos
 modules/sam2_repo/
 modules/weights/
+modules/pose_landmarker_full.task
 
 # OS/editor noise
 .vscode/
