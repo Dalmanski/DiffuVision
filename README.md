@@ -80,7 +80,9 @@ DiffuVision/
 
 Instead of placing the models inside the `model` folder, you can specify their full file paths using a `.env` file.
 
-Create a file named:
+DiffuVision loads `.env` from the project folder on startup. If it is missing or blank, the application creates it with default settings for appearance, configuration, models, and the optional `ENC` secret.
+
+To configure model paths, edit the generated `.env` file or create one named:
 
 ```text
 .env

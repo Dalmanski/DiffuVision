@@ -176,7 +176,7 @@ def _pose_view(image_path):
     return ratio < SIDE_RATIO, points[0].x > ear.x, (lower > LOWER_RATIO if lower_visible else None)
 
 def _print_scores(title, image_path, labels, probabilities):
-    print(f'[{title}] {image_path}')
+    print(f'[{title}] {Path(image_path).name}')
     for label, probability in sorted(zip(labels, probabilities), key=lambda item: item[1], reverse=True):
         print(f'  {label:<18} {probability * 100:6.2f}%')
 

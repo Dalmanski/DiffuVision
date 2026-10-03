@@ -12,7 +12,20 @@ class ConfigManager:
 
     @staticmethod
     def load_env(base_dir):
-        load_dotenv(Path(base_dir) / '.env', override=True)
+        env_path = Path(base_dir) / '.env'
+        if not env_path.exists() or not env_path.read_text(encoding='utf-8').strip():
+            env_path.write_text(
+                'CTk_mode=system\n'
+                'CTk_theme=default.json\n'
+                'JSON_config=config/sd/default.json\n'
+                'JSON_autosave=True\n'
+                'SD_INPAINT_MODEL=[]\n'
+                'SD_15_LoRA_MODEL=[]\n'
+                'SD_15_EMBEDDING={}\n'
+                'ENC=\n',
+                encoding='utf-8',
+            )
+        load_dotenv(env_path, override=True)
 
     @staticmethod
     def env_value(name, default):
