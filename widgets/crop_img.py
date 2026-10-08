@@ -1,12 +1,18 @@
-from PIL import Image
+from utils.image_loader import pixel_box
+
+FULL_BOX = 0.0, 0.0, 1.0, 1.0
+MIN_CROP = 0.02
 
 class CropImageMixin:
+    @staticmethod
+    def parse_ratio(choice):
+        left, right = choice.split(':', 1)
+        return float(left) / float(right)
+
     def crop_to_ratio(self, choice):
-        if self.original_image is None:
-            return 0.0, 0.0, 1.0, 1.0
-        if choice.strip().upper() == 'FREE':
-            return 0.0, 0.0, 1.0, 1.0
-        ratio = float(choice.split(':')[0]) / float(choice.split(':')[1])
+        if self.original_image is None or choice.strip().upper() == 'FREE':
+            return FULL_BOX
+        ratio = self.parse_ratio(choice)
         image_width, image_height = self.original_image.size
         image_aspect = image_width / image_height
         if image_aspect > ratio:
@@ -19,72 +25,67 @@ class CropImageMixin:
         top = (1.0 - crop_height) / 2.0
         return left, top, left + crop_width, top + crop_height
 
-    def get_effective_crop_box(self):
-        if self.crop_box is None:
-            return 0.0, 0.0, 1.0, 1.0
-        return self.crop_box
+    def crop_or_full(self):
+        return FULL_BOX if self.crop_box is None else self.crop_box
 
     def get_cropped_image(self, image):
         image = image.convert('RGB')
         if self.crop_box is None:
             return image.copy()
-        width, height = image.size
-        left, top, right, bottom = self.crop_box
-        x1 = max(0, min(width - 1, int(round(left * width))))
-        y1 = max(0, min(height - 1, int(round(top * height))))
-        x2 = max(x1 + 1, min(width, int(round(right * width))))
-        y2 = max(y1 + 1, min(height, int(round(bottom * height))))
-        return image.crop((x1, y1, x2, y2))
+        return image.crop(pixel_box(self.crop_box, image.size))
 
     def clamp_crop_box(self, box):
         left, top, right, bottom = [float(value) for value in box]
-        minimum = 0.02
-        left = max(0.0, min(1.0 - minimum, left))
-        top = max(0.0, min(1.0 - minimum, top))
-        right = max(minimum, min(1.0, right))
-        bottom = max(minimum, min(1.0, bottom))
-        if right - left < minimum:
-            if left + minimum <= 1.0:
-                right = left + minimum
+        left = max(0.0, min(1.0 - MIN_CROP, left))
+        top = max(0.0, min(1.0 - MIN_CROP, top))
+        right = max(MIN_CROP, min(1.0, right))
+        bottom = max(MIN_CROP, min(1.0, bottom))
+        if right - left < MIN_CROP:
+            if left + MIN_CROP <= 1.0:
+                right = left + MIN_CROP
             else:
-                left = max(0.0, right - minimum)
-        if bottom - top < minimum:
-            if top + minimum <= 1.0:
-                bottom = top + minimum
+                left = max(0.0, right - MIN_CROP)
+        if bottom - top < MIN_CROP:
+            if top + MIN_CROP <= 1.0:
+                bottom = top + MIN_CROP
             else:
-                top = max(0.0, bottom - minimum)
+                top = max(0.0, bottom - MIN_CROP)
         return left, top, right, bottom
 
-    def get_crop_ratio(self):
-        value = self.ratio_var.get().strip().upper()
-        if value == 'FREE':
-            if self.original_image is None:
-                return None
-            left, top, right, bottom = self.get_effective_crop_box()
-            crop_width = max(1.0, (right - left) * self.original_image.width)
-            crop_height = max(1.0, (bottom - top) * self.original_image.height)
-            return crop_width / crop_height
-        left, right = value.split(':', 1)
-        return float(left) / float(right)
+    def is_free_ratio(self):
+        return self.ratio_var.get().strip().upper() == 'FREE'
 
-    def clamp_fixed_crop_box(self, box, ratio):
+    def get_crop_ratio(self):
+        if not self.is_free_ratio():
+            return self.parse_ratio(self.ratio_var.get().strip().upper())
+        if self.original_image is None:
+            return None
+        left, top, right, bottom = self.crop_or_full()
+        crop_width = max(1.0, (right - left) * self.original_image.width)
+        crop_height = max(1.0, (bottom - top) * self.original_image.height)
+        return crop_width / crop_height
+
+    def normalized_ratio(self, ratio):
+        return ratio * self.original_image.height / self.original_image.width
+
+    def clamp_fixed_box(self, box, ratio):
         if self.original_image is None or ratio is None:
             return self.clamp_crop_box(box)
         left, top, right, bottom = [float(value) for value in box]
-        normalized_ratio = ratio * self.original_image.height / self.original_image.width
-        width = max(0.02, right - left)
-        height = max(0.02, bottom - top)
+        normalized_ratio = self.normalized_ratio(ratio)
+        width = max(MIN_CROP, right - left)
+        height = max(MIN_CROP, bottom - top)
         if width / height > normalized_ratio:
             height = width / normalized_ratio
         else:
             width = height * normalized_ratio
         width = min(width, 1.0, normalized_ratio)
         height = min(height, 1.0, 1.0 / normalized_ratio)
-        if width < 0.02:
-            width = 0.02
+        if width < MIN_CROP:
+            width = MIN_CROP
             height = width / normalized_ratio
-        if height < 0.02:
-            height = 0.02
+        if height < MIN_CROP:
+            height = MIN_CROP
             width = height * normalized_ratio
         if width > 1.0:
             width = 1.0
@@ -112,6 +113,11 @@ class CropImageMixin:
             bottom = 1.0
         return self.clamp_crop_box((left, top, right, bottom))
 
+    def clamp_for_ratio(self, box):
+        if self.is_free_ratio():
+            return self.clamp_crop_box(box)
+        return self.clamp_fixed_box(box, self.get_crop_ratio())
+
     def mark_crop_changed(self, message):
         self.reset_preview_state()
         self.refresh_crop_ui(allow_reload=True)
@@ -120,28 +126,24 @@ class CropImageMixin:
         self.show_output()
 
     def ratio_changed(self, choice):
-        if self.processing or self.model_loading or self.seg_loading or self.class_loading:
-            return
-        if self.original_image is None:
+        if self.input_is_busy(include_manual=False) or self.original_image is None:
             return
         if choice.strip().upper() == 'FREE':
-            self.crop_box = 0.0, 0.0, 1.0, 1.0
-            self.mark_crop_changed(f'Ratio {choice}')
-            return
-        ratio = self.get_crop_ratio()
-        self.crop_box = self.clamp_fixed_crop_box(self.get_effective_crop_box(), ratio)
+            self.crop_box = FULL_BOX
+        else:
+            self.crop_box = self.clamp_fixed_box(self.crop_or_full(), self.get_crop_ratio())
         self.mark_crop_changed(f'Ratio {choice}')
 
     def crop_handle_size(self):
         return 11
 
-    def crop_handle_points(self, display):
+    def crop_display_rect(self, display):
         x, y, width, height = display
-        left, top, right, bottom = self.get_effective_crop_box()
-        x1 = x + left * width
-        y1 = y + top * height
-        x2 = x + right * width
-        y2 = y + bottom * height
+        left, top, right, bottom = self.crop_or_full()
+        return x + left * width, y + top * height, x + right * width, y + bottom * height
+
+    def crop_handle_points(self, display):
+        x1, y1, x2, y2 = self.crop_display_rect(display)
         xm = (x1 + x2) / 2
         ym = (y1 + y2) / 2
         return {'nw': (x1, y1), 'n': (xm, y1), 'ne': (x2, y1), 'w': (x1, ym), 'e': (x2, ym), 'sw': (x1, y2), 's': (xm, y2), 'se': (x2, y2)}
@@ -155,34 +157,29 @@ class CropImageMixin:
                 return handle
         return None
 
-    def crop_move_button_size(self):
+    def move_btn_size(self):
         return 34, 28
 
-    def crop_move_button_box(self, display):
-        x, y, width, height = display
-        left, top, right, bottom = self.get_effective_crop_box()
-        x2 = x + right * width
-        y1 = y + top * height
-        button_width, button_height = self.crop_move_button_size()
+    def move_btn_box(self, display):
+        _, y1, x2, _ = self.crop_display_rect(display)
+        button_width, button_height = self.move_btn_size()
         return x2 - button_width, y1, x2, y1 + button_height
 
-    def get_crop_move_button(self, event):
+    def on_move_btn(self, event):
         if self.input_box is None:
             return False
-        x1, y1, x2, y2 = self.crop_move_button_box(self.input_box)
+        x1, y1, x2, y2 = self.move_btn_box(self.input_box)
         return x1 <= event.x <= x2 and y1 <= event.y <= y2
 
     def start_crop(self, event):
         if self.manual_mode:
-            self.select_manual_segment(event)
+            self.add_manual_segment(event)
             return
-        if self.original_image is None or self.processing or self.model_loading or self.seg_loading or self.class_loading:
+        if self.original_image is None or self.input_is_busy(include_manual=False) or self.input_box is None:
             return
-        if self.input_box is None:
-            return
-        if self.get_crop_move_button(event):
+        if self.on_move_btn(event):
             self.active_crop_handle = 'move'
-            self.crop_box_start = self.get_effective_crop_box()
+            self.crop_box_start = self.crop_or_full()
             self.crop_move_start = (event.x, event.y)
             self.cropping = True
             self.draw_crop_overlay()
@@ -191,147 +188,85 @@ class CropImageMixin:
         if handle is None:
             return
         self.active_crop_handle = handle
-        self.crop_box_start = self.get_effective_crop_box()
+        self.crop_box_start = self.crop_or_full()
         self.cropping = True
 
-    def update_crop_selection(self, event):
-        if self.manual_mode:
+    def drag_crop(self, event):
+        if self.manual_mode or not self.cropping or self.input_box is None or self.crop_box_start is None:
             return
-        if not self.cropping or self.input_box is None or self.crop_box_start is None:
-            return
-        if self.active_crop_handle == 'move':
-            x, y, width, height = self.input_box
-            left, top, right, bottom = self.crop_box_start
+        x, y, width, height = self.input_box
+        left, top, right, bottom = self.crop_box_start
+        handle = self.active_crop_handle
+        if handle == 'move':
             start_x, start_y = self.crop_move_start
             crop_width = right - left
             crop_height = bottom - top
-            dx = (event.x - start_x) / width
-            dy = (event.y - start_y) / height
-            new_left = max(0.0, min(1.0 - crop_width, left + dx))
-            new_top = max(0.0, min(1.0 - crop_height, top + dy))
+            new_left = max(0.0, min(1.0 - crop_width, left + (event.x - start_x) / width))
+            new_top = max(0.0, min(1.0 - crop_height, top + (event.y - start_y) / height))
             self.crop_box = (new_left, new_top, new_left + crop_width, new_top + crop_height)
             self.draw_crop_overlay()
             return
-        x, y, width, height = self.input_box
-        px = max(x, min(x + width, event.x))
-        py = max(y, min(y + height, event.y))
-        nx = (px - x) / width
-        ny = (py - y) / height
-        left, top, right, bottom = self.crop_box_start
-        if self.ratio_var.get().strip().upper() == 'FREE':
-            if self.active_crop_handle == 'nw':
-                box = (nx, ny, right, bottom)
-            elif self.active_crop_handle == 'ne':
-                box = (left, ny, nx, bottom)
-            elif self.active_crop_handle == 'sw':
-                box = (nx, top, right, ny)
-            elif self.active_crop_handle == 'se':
-                box = (left, top, nx, ny)
-            elif self.active_crop_handle == 'e':
-                box = (left, top, nx, bottom)
-            elif self.active_crop_handle == 'w':
-                box = (nx, top, right, bottom)
-            elif self.active_crop_handle == 's':
-                box = (left, top, right, ny)
-            else:
-                box = (left, ny, right, bottom)
-            self.crop_box = self.clamp_crop_box(box)
+        nx = (max(x, min(x + width, event.x)) - x) / width
+        ny = (max(y, min(y + height, event.y)) - y) / height
+        if self.is_free_ratio():
+            new_left = nx if 'w' in handle else left
+            new_right = nx if 'e' in handle else right
+            new_top = ny if 'n' in handle else top
+            new_bottom = ny if 's' in handle else bottom
+            self.crop_box = self.clamp_crop_box((new_left, new_top, new_right, new_bottom))
             self.draw_crop_overlay()
             return
         ratio = self.get_crop_ratio()
-        normalized_ratio = ratio * self.original_image.height / self.original_image.width
-        if self.active_crop_handle in ('nw', 'ne', 'sw', 'se'):
-            anchor_x = right if self.active_crop_handle in ('nw', 'sw') else left
-            anchor_y = bottom if self.active_crop_handle in ('nw', 'ne') else top
-            dx = abs(nx - anchor_x)
-            dy = abs(ny - anchor_y)
-            crop_width = max(0.02, dx, dy * normalized_ratio)
+        normalized_ratio = self.normalized_ratio(ratio)
+        if handle in ('nw', 'ne', 'sw', 'se'):
+            anchor_x = right if 'w' in handle else left
+            anchor_y = bottom if 'n' in handle else top
+            crop_width = max(MIN_CROP, abs(nx - anchor_x), abs(ny - anchor_y) * normalized_ratio)
             crop_height = crop_width / normalized_ratio
-            if self.active_crop_handle == 'nw':
-                box = (anchor_x - crop_width, anchor_y - crop_height, anchor_x, anchor_y)
-            elif self.active_crop_handle == 'ne':
-                box = (anchor_x, anchor_y - crop_height, anchor_x + crop_width, anchor_y)
-            elif self.active_crop_handle == 'sw':
-                box = (anchor_x - crop_width, anchor_y, anchor_x, anchor_y + crop_height)
-            else:
-                box = (anchor_x, anchor_y, anchor_x + crop_width, anchor_y + crop_height)
-        elif self.active_crop_handle in ('e', 'w'):
-            if self.active_crop_handle == 'e':
-                new_width = max(0.02, nx - left)
-                center_y = (top + bottom) / 2.0
-                new_height = new_width / normalized_ratio
-                box = (left, center_y - new_height / 2.0, nx, center_y + new_height / 2.0)
-            else:
-                new_width = max(0.02, right - nx)
-                center_y = (top + bottom) / 2.0
-                new_height = new_width / normalized_ratio
-                box = (nx, center_y - new_height / 2.0, right, center_y + new_height / 2.0)
-        elif self.active_crop_handle == 's':
-            new_height = max(0.02, ny - top)
-            center_x = (left + right) / 2.0
-            new_width = new_height * normalized_ratio
-            box = (center_x - new_width / 2.0, top, center_x + new_width / 2.0, ny)
+            x1, x2 = (anchor_x - crop_width, anchor_x) if 'w' in handle else (anchor_x, anchor_x + crop_width)
+            y1, y2 = (anchor_y - crop_height, anchor_y) if 'n' in handle else (anchor_y, anchor_y + crop_height)
+            box = (x1, y1, x2, y2)
+        elif handle in ('e', 'w'):
+            x1, x2 = (left, nx) if handle == 'e' else (nx, right)
+            new_height = max(MIN_CROP, x2 - x1) / normalized_ratio
+            center_y = (top + bottom) / 2.0
+            box = (x1, center_y - new_height / 2.0, x2, center_y + new_height / 2.0)
         else:
-            new_height = max(0.02, bottom - ny)
+            y1, y2 = (top, ny) if handle == 's' else (ny, bottom)
+            new_width = max(MIN_CROP, y2 - y1) * normalized_ratio
             center_x = (left + right) / 2.0
-            new_width = new_height * normalized_ratio
-            box = (center_x - new_width / 2.0, ny, center_x + new_width / 2.0, bottom)
-        self.crop_box = self.clamp_fixed_crop_box(box, ratio)
+            box = (center_x - new_width / 2.0, y1, center_x + new_width / 2.0, y2)
+        self.crop_box = self.clamp_fixed_box(box, ratio)
         self.draw_crop_overlay()
 
     def finish_crop(self, event):
-        if self.manual_mode:
-            return
-        if not self.cropping:
+        if self.manual_mode or not self.cropping:
             return
         self.cropping = False
         self.active_crop_handle = None
         self.crop_box_start = None
         self.crop_move_start = None
-        box = self.crop_box if self.crop_box is not None else (0.0, 0.0, 1.0, 1.0)
-        if self.ratio_var.get().strip().upper() == 'FREE':
-            box = self.clamp_crop_box(box)
-        else:
-            box = self.clamp_fixed_crop_box(box, self.get_crop_ratio())
+        box = self.clamp_for_ratio(self.crop_or_full())
         if box[0] <= 0.005 and box[1] <= 0.005 and box[2] >= 0.995 and box[3] >= 0.995:
             self.crop_box = None
         else:
             self.crop_box = box
-        self.reset_preview_state()
-        self.refresh_crop_ui(allow_reload=True)
-        print('Crop changed')
-        self.show_input()
-        self.show_output()
+        self.mark_crop_changed('Crop changed')
 
     def reset_crop(self):
-        if self.processing or self.model_loading or self.seg_loading or self.class_loading:
-            return
-        if self.original_image is None:
-            return
-        if self.crop_box is None:
+        if self.input_is_busy(include_manual=False) or self.original_image is None or self.crop_box is None:
             return
         self.crop_box = self.crop_to_ratio(self.ratio_var.get())
-        self.reset_preview_state()
-        self.refresh_crop_ui(allow_reload=True)
-        print('Crop reset')
-        self.show_input()
-        self.show_output()
+        self.mark_crop_changed('Crop reset')
 
     def draw_crop_overlay(self):
         if self.input_box is None:
             return
         self.in_canvas.delete('crop_overlay')
-        x, y, width, height = self.input_box
-        left, top, right, bottom = self.get_effective_crop_box()
-        x1 = x + left * width
-        y1 = y + top * height
-        x2 = x + right * width
-        y2 = y + bottom * height
-        self.in_canvas.create_rectangle(x1, y1, x2, y2, outline='#000000', width=3, dash=(8, 5), tags='crop_overlay')
-        move_x1, move_y1, move_x2, move_y2 = self.crop_move_button_box(self.input_box)
+        self.in_canvas.create_rectangle(*self.crop_display_rect(self.input_box), outline='#000000', width=3, dash=(8, 5), tags='crop_overlay')
+        move_x1, move_y1, move_x2, move_y2 = self.move_btn_box(self.input_box)
         self.in_canvas.create_rectangle(move_x1, move_y1, move_x2, move_y2, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')
         self.in_canvas.create_text((move_x1 + move_x2) / 2.0, (move_y1 + move_y2) / 2.0, text='✥', fill='#000000', font=('Segoe UI Symbol', 15), tags='crop_overlay')
         handle_size = self.crop_handle_size()
-        for point in self.crop_handle_points(self.input_box).values():
-            hx, hy = point
+        for hx, hy in self.crop_handle_points(self.input_box).values():
             self.in_canvas.create_rectangle(hx - handle_size, hy - handle_size, hx + handle_size, hy + handle_size, outline='#000000', fill='#FFFFFF', width=2, tags='crop_overlay')

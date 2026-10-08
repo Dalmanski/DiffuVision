@@ -5,10 +5,16 @@ import torch
 from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+from utils.image_loader import pixel_box
+from utils.model_utils import clear_gpu
 
-SAM2_CHECKPOINT_NAME = "sam2.1_hiera_small.pt"
-SAM2_CHECKPOINT_PATH = Path("checkpoints") / SAM2_CHECKPOINT_NAME
+SAM2_CKPT_NAME = "sam2.1_hiera_small.pt"
+SAM2_CKPT_PATH = Path("checkpoints") / SAM2_CKPT_NAME
 SAM2_CONFIG_NAME = "sam2.1_hiera_s.yaml"
+SAM2_CONFIG_PATH = Path("sam2") / "configs" / "sam2.1" / SAM2_CONFIG_NAME
+
+def _has_sam2_files(directory):
+    return (directory / SAM2_CKPT_PATH).is_file() and (directory / SAM2_CONFIG_PATH).is_file()
 
 class SAM2Segmenter:
     def __init__(self, repo_dir=None):
@@ -16,46 +22,44 @@ class SAM2Segmenter:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
         self.predictor = None
-        self.image = None
-        self.image_np = None
+        self._reset_state(None)
+
+    def _reset_state(self, image):
+        self.image = image
+        self.image_np = None if image is None else np.array(image)
         self.current_mask = None
-        self.accumulated_mask = None
+        self.accumulated_mask = None if image is None else np.zeros((image.height, image.width), dtype=bool)
         self.segments = []
         self.prompt_points = []
         self.prompt_labels = []
-        self.last_masks = None
-        self.last_scores = None
 
     def find_repo_dir(self):
-        if self.repo_dir is not None and (self.repo_dir / SAM2_CHECKPOINT_PATH).is_file() and (self.repo_dir / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
+        if self.repo_dir is not None and _has_sam2_files(self.repo_dir):
             return self.repo_dir
+        base_dir = Path(__file__).resolve().parents[1]
         env_value = os.environ.get("SAM2_REPO_DIR", "").strip()
         candidates = []
         if env_value:
             candidate = Path(env_value)
-            if not candidate.is_absolute():
-                candidate = Path(__file__).resolve().parents[1] / candidate
-            candidates.append(candidate)
-        base_dir = Path(__file__).resolve().parents[1]
+            candidates.append(candidate if candidate.is_absolute() else base_dir / candidate)
         candidates.extend([base_dir, Path(__file__).resolve().parent, base_dir / "model", base_dir / "models", base_dir.parent, base_dir.parent / "sam2", base_dir.parent / "model", base_dir.parent / "models"])
+        candidates = [candidate.resolve(strict=False) for candidate in candidates]
         for candidate in candidates:
-            candidate = candidate.resolve(strict=False)
-            if (candidate / SAM2_CHECKPOINT_PATH).is_file() and (candidate / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
+            if _has_sam2_files(candidate):
                 self.repo_dir = candidate
                 return candidate
         for root in candidates:
-            root = root.resolve(strict=False)
             if not root.exists():
                 continue
             try:
-                for checkpoint in root.rglob(SAM2_CHECKPOINT_NAME):
+                for checkpoint in root.rglob(SAM2_CKPT_NAME):
                     parent = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
-                    if (parent / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME).is_file():
+                    if (parent / SAM2_CONFIG_PATH).is_file():
                         self.repo_dir = parent
                         return parent
             except OSError:
                 continue
-        raise FileNotFoundError(f"SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing {SAM2_CHECKPOINT_NAME} and {SAM2_CONFIG_NAME}.")
+        raise FileNotFoundError(f"SAM 2 repository not found. Set SAM2_REPO_DIR to the folder containing {SAM2_CKPT_NAME} and {SAM2_CONFIG_NAME}.")
 
     def load(self):
         if self.model is not None:
@@ -63,12 +67,10 @@ class SAM2Segmenter:
         if self.device != "cuda":
             raise RuntimeError("CUDA GPU is required for SAM 2.")
         repo_dir = self.find_repo_dir()
-        checkpoint = repo_dir / SAM2_CHECKPOINT_PATH
-        config = repo_dir / "sam2" / "configs" / "sam2.1" / SAM2_CONFIG_NAME
-        print(f"Loading SAM 2 ({SAM2_CHECKPOINT_NAME}, {SAM2_CONFIG_NAME})...")
-        self.model = build_sam2(str(config), str(checkpoint), device=self.device)
+        print(f"Loading SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME})...")
+        self.model = build_sam2(str(repo_dir / SAM2_CONFIG_PATH), str(repo_dir / SAM2_CKPT_PATH), device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print(f"SAM 2 ({SAM2_CHECKPOINT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
+        print(f"SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
 
     def load_image(self, image):
         if isinstance(image, str):
@@ -77,21 +79,10 @@ class SAM2Segmenter:
             image = image.convert("RGB")
         else:
             raise TypeError("Image must be a file path or PIL Image.")
-        self.image = image
-        self.image_np = np.array(image)
-        self.current_mask = None
-        self.accumulated_mask = np.zeros((image.height, image.width), dtype=bool)
-        self.segments = []
-        self.prompt_points = []
-        self.prompt_labels = []
-        self.last_masks = None
-        self.last_scores = None
+        self._reset_state(image)
         if self.predictor is None:
             self.load()
         self.predictor.set_image(self.image_np)
-
-    def set_image(self, image):
-        self.load_image(image)
 
     def add_point(self, x, y, positive=True):
         if self.image is None:
@@ -102,11 +93,6 @@ class SAM2Segmenter:
             return
         self.prompt_points.append((x, y))
         self.prompt_labels.append(1 if positive else 0)
-
-    def remove_last_point(self):
-        if self.prompt_points:
-            self.prompt_points.pop()
-            self.prompt_labels.pop()
 
     def clear_points(self):
         self.prompt_points.clear()
@@ -126,13 +112,10 @@ class SAM2Segmenter:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 masks, scores, _ = self.predictor.predict(point_coords=points, point_labels=labels, multimask_output=True)
         masks = masks.astype(bool)
-        self.last_masks = masks
-        self.last_scores = scores
         if mask_index is not None:
             best_index = int(mask_index)
         elif prefer_smallest:
-            areas = masks.reshape(masks.shape[0], -1).sum(axis=1)
-            best_index = int(np.argmin(areas))
+            best_index = int(np.argmin(masks.reshape(masks.shape[0], -1).sum(axis=1)))
         else:
             best_index = int(np.argmax(scores))
         self.current_mask = masks[best_index]
@@ -146,7 +129,6 @@ class SAM2Segmenter:
         appended_mask = self.current_mask.copy()
         self.segments.append(appended_mask)
         self.accumulated_mask |= appended_mask
-        self.current_mask = None
         self.clear_points()
         return appended_mask
 
@@ -160,36 +142,30 @@ class SAM2Segmenter:
                 return True
         return False
 
-    def append_point_segment(self, x, y, positive=True, prefer_smallest=True, mask_index=None):
+    def add_point_segment(self, x, y, positive=True, prefer_smallest=True, mask_index=None):
         self.add_point(x, y, positive)
         self.predict(prefer_smallest=prefer_smallest, mask_index=mask_index)
         self.append_segment()
-        return self.get_accumulated_mask()
+        return self.get_mask()
 
-    def build_inpainting_mask(self, target_size=None, crop_box=None, original_size=None):
-        accumulated = self.get_accumulated_mask()
+    def build_mask(self, target_size=None, crop_box=None, original_size=None):
+        accumulated = self.get_mask()
         if accumulated is None or not np.any(accumulated):
             raise RuntimeError("No accumulated selection is available.")
         raw_mask = Image.fromarray((accumulated.astype(np.uint8) * 255), mode="L")
         if original_size is not None and crop_box is not None:
-            width, height = original_size
-            left, top, right, bottom = [float(value) for value in crop_box]
-            x1 = max(0, min(width - 1, int(round(left * width))))
-            y1 = max(0, min(height - 1, int(round(top * height))))
-            x2 = max(x1 + 1, min(width, int(round(right * width))))
-            y2 = max(y1 + 1, min(height, int(round(bottom * height))))
-            raw_mask = raw_mask.crop((x1, y1, x2, y2))
+            raw_mask = raw_mask.crop(pixel_box([float(value) for value in crop_box], original_size))
         if target_size is not None and raw_mask.size != tuple(target_size):
             raw_mask = raw_mask.resize(tuple(target_size), Image.Resampling.NEAREST)
         return raw_mask.copy()
 
     def select_point(self, x, y, positive=True, target_size=None, crop_box=None, original_size=None, prefer_smallest=True, mask_index=None):
-        self.append_point_segment(x, y, positive, prefer_smallest=prefer_smallest, mask_index=mask_index)
-        return self.build_inpainting_mask(target_size=target_size, crop_box=crop_box, original_size=original_size)
+        self.add_point_segment(x, y, positive, prefer_smallest=prefer_smallest, mask_index=mask_index)
+        return self.build_mask(target_size=target_size, crop_box=crop_box, original_size=original_size)
 
     def clear_all_segments(self):
         self.clear_selection()
-        return self.get_accumulated_mask()
+        return self.get_mask()
 
     def clear_selection(self):
         if self.image is None:
@@ -197,44 +173,15 @@ class SAM2Segmenter:
         else:
             self.accumulated_mask = np.zeros((self.image.height, self.image.width), dtype=bool)
         self.segments = []
-        self.current_mask = None
         self.clear_points()
 
-    def get_current_mask(self):
-        return None if self.current_mask is None else self.current_mask.copy()
-
-    def get_accumulated_mask(self):
+    def get_mask(self):
         return None if self.accumulated_mask is None else self.accumulated_mask.copy()
-
-    def get_last_candidates(self):
-        if self.last_masks is None:
-            return None, None
-        return self.last_masks.copy(), self.last_scores.copy()
-
-    def get_prompt_points(self):
-        return list(self.prompt_points), list(self.prompt_labels)
-
-    def get_device(self):
-        return self.device
 
     def get_image_size(self):
         if self.image is None:
             return None
         return self.image.size
-
-    def save_selection(self, path):
-        if self.image is None:
-            raise RuntimeError("No image has been loaded.")
-        if self.accumulated_mask is None or not np.any(self.accumulated_mask):
-            raise RuntimeError("No accumulated selection is available.")
-        source = np.array(self.image.convert("RGBA"))
-        source[:, :, 3] = self.accumulated_mask.astype(np.uint8) * 255
-        Image.fromarray(source, mode="RGBA").save(path)
-
-    def get_gpu_name(self):
-        if not torch.cuda.is_available():
-            return None
-        return torch.cuda.get_device_name(0)
 
     def close(self):
         try:
@@ -244,24 +191,5 @@ class SAM2Segmenter:
             pass
         self.predictor = None
         self.model = None
-        self.image = None
-        self.image_np = None
-        self.current_mask = None
-        self.accumulated_mask = None
-        self.segments = []
-        self.prompt_points = []
-        self.prompt_labels = []
-        self.last_masks = None
-        self.last_scores = None
-        self.clear_cache()
-
-    def clear_cache(self):
-        if torch.cuda.is_available():
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                torch.cuda.ipc_collect()
-            except Exception:
-                pass
+        self._reset_state(None)
+        clear_gpu()

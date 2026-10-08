@@ -1,4 +1,4 @@
-import os, sys, json, time, threading, gc
+import os, sys, json, time, threading
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
@@ -18,8 +18,9 @@ from widgets.ctk_utils import CanvasCTk, GradientBtn
 from widgets.gif_anim import GifAnimationMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
-from utils.image_loader import load_image
+from utils.image_loader import load_image, flatten_alpha
 from utils.dupfilename import prompt_save_path
+from utils.model_utils import clear_gpu
 from modules.sd_ideal import SDIdealImageMixin
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -48,12 +49,10 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.model_name = None
         self.dtype = None
         self.segmentation = None
-        self.segmenter = None
-        self.sel_img = None
         self.manual_mode = False
         self.manual_loading = False
         self.manual_segmenter = None
-        self.manual_selection_image = None
+        self.manual_image = None
         self.manual_base_mask = None
         self.original_image = None
         self.input_image = None
@@ -65,10 +64,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.gen_count = 0
         self.mask_image = None
         self.mask_src = None
-        self.cls_res = None
-        self.gender_res = None
-        self.age_res = None
-        self.view_res = None
         self.class_loading = False
         self.processing = False
         self.models_ready = False
@@ -80,10 +75,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.output_pic = None
         self.input_busy_visual = False
         self.crop_box = None
-        self.crop_start = None
         self.input_box = None
         self.cropping = False
-        self.crop_handle = None
         self.sd_rec = ctk.BooleanVar(value=True)
         self.esrgan_out = ctk.BooleanVar(value=False)
         self.full_out = ctk.BooleanVar(value=False)
@@ -140,9 +133,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def open_settings(self):
         from settings import open_settings_popup
         popup = open_settings_popup(self)
-        popup.on_save = self.reload_after_settings
+        popup.on_save = self.reload_settings
 
-    def reload_after_settings(self):
+    def reload_settings(self):
         previous_model = self.model_name
         previous_loras = set(getattr(self, 'lora_paths', []))
         previous_embeddings = dict(getattr(self, 'embedding_paths', {}))
@@ -176,9 +169,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.mask_button_row.grid(row=0, column=1, sticky='e', padx=2, pady=(0, 4))
         self.reload_btn = GradientBtn(self.mask_button_row, text='↻', command=self.reload_mask, width=34, height=34, state='disabled')
         self.reload_btn.grid(row=0, column=0, sticky='e', padx=(0, 4))
-        self.manual_btn = GradientBtn(self.mask_button_row, text='✎', command=self.toggle_manual_segment_mode, width=34, height=34, state='disabled')
+        self.manual_btn = GradientBtn(self.mask_button_row, text='✎', command=self.toggle_manual_mode, width=34, height=34, state='disabled')
         self.manual_btn.grid(row=0, column=1, sticky='e', padx=4)
-        self.clear_seg_btn = GradientBtn(self.mask_button_row, text='🗑', command=self.clear_manual_segments, width=34, height=34, state='disabled')
+        self.clear_seg_btn = GradientBtn(self.mask_button_row, text='🗑', command=self.clear_segments, width=34, height=34, state='disabled')
         self.clear_seg_btn.grid(row=0, column=2, sticky='e', padx=(4, 0))
         self.img_box = ctk.CTkFrame(self.left_frame, corner_radius=0, height=680)
         self.left_frame.grid_rowconfigure(1, minsize=680, weight=0)
@@ -222,7 +215,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.lora_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_lora_menu, anchor='w', height=34)
         self.lora_menu.grid(row=2, column=1, sticky='ew', padx=2, pady=(0, 4))
         ctk.CTkLabel(self.cfg_box, text='EMBEDDING:', anchor='w', width=100).grid(row=4, column=0, sticky='nw', padx=(4, 8), pady=(0, 8))
-        self.embedding_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_embedding_menu, anchor='w', height=34)
+        self.embedding_menu = GradientBtn(self.cfg_box, text='', command=self.toggle_emb_menu, anchor='w', height=34)
         self.embedding_menu.grid(row=4, column=1, sticky='ew', padx=2, pady=(0, 4))
         self.lora_panel = ctk.CTkFrame(self.cfg_box, fg_color='transparent')
         self.lora_panel.grid(row=3, column=1, sticky='ew', padx=2, pady=(0, 8))
@@ -295,7 +288,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.out_canvas.grid(row=0, column=0, sticky='nsew')
         self.swap_btn = GradientBtn(self.output_container, text='⇄', command=self.switch_output_image, width=34, height=34)
         self.swap_btn.place(relx=1.0, x=-8, y=8, anchor='ne')
-        self.console = ConsoleTextBox(self.right_frame, height=260, wrap='none', font=('Consolas', 12))
+        self.console = ConsoleTextBox(self.right_frame, height=260, wrap='word', font=('Consolas', 12))
         self.console.grid(row=1, column=0, sticky='ew', padx=10, pady=6)
         self.save_clear_row = ctk.CTkFrame(self.right_frame, fg_color='transparent')
         self.save_clear_row.grid(row=2, column=0, sticky='ew', padx=10, pady=(6, 10))
@@ -313,8 +306,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.settings_btn.grid(row=0, column=3, sticky='e', padx=(5, 0))
         self.in_canvas.bind('<Configure>', lambda e: self.show_input())
         self.in_canvas.bind('<ButtonPress-1>', self.start_crop)
-        self.in_canvas.bind('<ButtonPress-3>', self.remove_manual_segment)
-        self.in_canvas.bind('<B1-Motion>', self.update_crop_selection)
+        self.in_canvas.bind('<ButtonPress-3>', self.del_manual_segment)
+        self.in_canvas.bind('<B1-Motion>', self.drag_crop)
         self.in_canvas.bind('<ButtonRelease-1>', self.finish_crop)
         self.out_canvas.bind('<Configure>', lambda e: self.show_output())
         self.update_autosave()
@@ -338,8 +331,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def schedule(self, callback, *args, **kwargs):
         self.after(0, lambda: callback(*args, **kwargs))
 
-    def input_is_busy(self):
-        return any((self.processing, self.model_loading, self.seg_loading, self.class_loading, self.manual_loading))
+    def input_is_busy(self, include_manual=True):
+        return any((self.processing, self.model_loading, self.seg_loading, self.class_loading, include_manual and self.manual_loading))
 
     def spin_loader(self):
         busy = self.input_is_busy()
@@ -378,45 +371,50 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def toggle_lora_menu(self):
         self.toggle_multi_menu(self.lora_panel)
 
-    def toggle_multi_menu(self, panel):
+    def toggle_emb_menu(self):
+        self.toggle_multi_menu(self.embedding_panel)
+
+    @staticmethod
+    def toggle_multi_menu(panel):
         if panel.winfo_ismapped():
             panel.grid_remove()
         else:
             panel.grid()
 
-    def toggle_embedding_menu(self):
-        self.toggle_multi_menu(self.embedding_panel)
+    @staticmethod
+    def update_selection(selected, path, variable):
+        if variable.get():
+            selected.add(path)
+        else:
+            selected.discard(path)
 
     def lora_changed(self, path, variable):
-        if variable.get():
-            self.selected_loras.add(path)
-        else:
-            self.selected_loras.discard(path)
-        self.apply_lora_selection()
+        self.update_selection(self.selected_loras, path, variable)
+        self.apply_loras()
         self.refresh_lora_menu()
 
     def embedding_changed(self, path, variable):
-        if variable.get():
-            self.selected_embeddings.add(path)
-        else:
-            self.selected_embeddings.discard(path)
+        self.update_selection(self.selected_embeddings, path, variable)
         self.refresh_lora_menu()
 
-    def apply_lora_selection(self):
-        if self.pipe is None or not self.loaded_loras:
+    def activate_loras(self, pipe, loaded_loras):
+        if pipe is None or not loaded_loras:
             return
-        names = [name for path, name in self.loaded_loras if path in self.selected_loras]
+        names = [name for path, name in loaded_loras if path in self.selected_loras]
         if names:
-            self.pipe.set_adapters(names)
+            pipe.set_adapters(names)
         else:
-            self.pipe.disable_lora()
+            pipe.disable_lora()
+
+    def apply_loras(self):
+        self.activate_loras(self.pipe, self.loaded_loras)
 
     def update_gen_state(self):
         if self.processing:
             self.generate_btn.configure(state='normal', text='STOP GENERATING', command=self.stop_generation)
             self.chili_btn.configure(state='disabled')
             return
-        state = 'normal' if self.models_ready and self.original_image is not None and not self.model_loading and not self.seg_loading and not self.class_loading and not self.manual_loading else 'disabled'
+        state = 'normal' if self.models_ready and self.original_image is not None and not self.input_is_busy() else 'disabled'
         self.generate_btn.configure(state=state, text='GENERATE', command=self.generate)
         self.chili_btn.configure(state=state)
 
@@ -428,7 +426,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.generate(config_override=dict(payload))
         except Exception:
             print('Nyaaahhh~ I don\'t want the chili! It\'s too spicy for me ⸜(｡˃ ᵕ ˂ )⸝♡')
-        return
 
     def stop_generation(self):
         if not self.processing:
@@ -437,7 +434,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         print('Stopping...')
         self.generate_btn.configure(state='disabled', text='STOPPING...')
 
-    def check_stop_requested(self):
+    def check_stop(self):
         if self.stop_requested.is_set():
             raise GenerationStopped()
 
@@ -464,7 +461,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
 
     def load_env(self):
         global MODEL_OPTIONS, DEFAULT_MODEL
-        MODEL_OPTIONS, DEFAULT_MODEL, self.lora_paths, self.embedding_paths, self.start_cfg, autosave = self.config_manager.read_runtime_settings(MODEL_DIR)
+        MODEL_OPTIONS, DEFAULT_MODEL, self.lora_paths, self.embedding_paths, self.start_cfg, autosave = self.config_manager.read_settings(MODEL_DIR)
         self.selected_loras = set(self.lora_paths)
         self.selected_embeddings = set(self.embedding_paths)
         if not MODEL_OPTIONS:
@@ -474,14 +471,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def write_env(self):
         self.config_manager.write_env_settings(self.cfg_path, self.autosave.get())
 
-    def rel_cfg(self):
-        return self.config_manager.relative_config_path(self.cfg_path)
-
     def rel_disp(self, path):
-        return self.config_manager.relative_display_path(path)
+        return self.config_manager.relative_path(path)
 
     def refresh_cfgs(self):
-        self.cfg_files = self.config_manager.refresh_config_files(BASE_DIR)
+        self.cfg_files = self.config_manager.list_configs(BASE_DIR)
         values = [self.rel_disp(p) for p in self.cfg_files]
         fallback = self.rel_disp(DEFAULT_JSON)
         self.cfg_menu.configure(values=values if values else [fallback])
@@ -500,17 +494,28 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if target.exists():
             self.load_config(target)
             self.cfg_menu.set(self.rel_disp(target))
+            self.print_comments()
         self.update_autosave()
         self.write_env()
 
+    def print_comments(self):
+        try:
+            data = json.loads(self.json.get('1.0', 'end').strip())
+        except Exception:
+            return
+        for key, value in data.items():
+            if key.startswith('c') and (key == 'c' or key[1:].isdigit()):
+                print(f' ➤ {value}')
+
     def config_changed(self, choice):
-        if self.processing or self.model_loading or self.seg_loading or self.class_loading:
+        if self.input_is_busy(include_manual=False):
             return
         target = BASE_DIR / choice
         if not target.exists():
             return
         try:
             self.load_config(target)
+            self.print_comments()
             self.write_env()
         except Exception as e:
             print(f'Configuration Error: {e}')
@@ -533,30 +538,14 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.autosave_btn.configure(text='💾 OFF', fg_color='#666666', hover_color='#555555')
 
     def cleanup_gpu(self):
-        try:
-            if DEVICE == 'cuda':
-                torch.cuda.synchronize()
-        except Exception:
-            pass
-        gc.collect()
-        if DEVICE == 'cuda':
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                torch.cuda.ipc_collect()
-            except Exception:
-                pass
+        clear_gpu(synchronize=True)
 
     def load_config(self, path):
         self.config, self.cfg_path = self.config_manager.load_config(path)
-        self.cfg_name = self.rel_cfg()
+        self.cfg_name = self.rel_disp(self.cfg_path)
         self.json.delete('1.0', 'end')
         self.json.insert('1.0', json.dumps(self.config, indent=4, ensure_ascii=False))
         self.prompt.set(str(self.config.get('positive_prompt', '')))
-        if hasattr(self, 'config_menu'):
-            self.cfg_menu.set(self.rel_disp(self.cfg_path))
         print(f'Loaded {Path(self.cfg_name).name}')
 
     def prompt_changed(self, event=None):
@@ -616,7 +605,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.dtype = None
         self.cleanup_gpu()
 
-    def restore_diffusion_model(self):
+    def restore_pipe(self):
         if self.pipe is None:
             return
         print(f'Model → {DEVICE.upper()}')
@@ -633,7 +622,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             return
         if self.model_name == choice and self.models_ready:
             return
-        self.config_manager.reorder_model_list_in_env(MODEL_OPTIONS.get(choice, ''))
+        self.config_manager.reorder_models(MODEL_OPTIONS.get(choice, ''))
         self.models_ready = False
         self.generate_btn.configure(state='disabled')
         self.model_menu.configure(state='disabled')
@@ -660,11 +649,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                     print(f'LoRA loaded: {lora_path}')
                 except Exception as error:
                     print(f'LoRA not loaded: {lora_path} ({error})')
-            names = [name for path, name in loaded_loras if path in self.selected_loras]
-            if names:
-                pipe.set_adapters(names)
-            elif loaded_loras:
-                pipe.disable_lora()
+            self.activate_loras(pipe, loaded_loras)
             for embedding_path, token in embedding_paths.items():
                 try:
                     pipe.load_textual_inversion(embedding_path, token=token)
@@ -703,75 +688,45 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.schedule(self.model_menu.configure, state='normal')
             self.schedule(print, f'Model Error: {e}')
 
-    def set_img_class(self, classification):
-        best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
-        if best_class not in img_classify.image:
-            best_class = img_classify.image[1]
-        self.img_cls.set(best_class)
-        self.image_class_menu.configure(state='normal')
+    def meta_menus(self):
+        return self.image_class_menu, self.gender_menu, self.age_menu, self.view_menu
 
-    def set_gender(self, result):
-        detected_gender = self.normalize_choice(result[0], img_classify.gender)
-        self.gender.set(detected_gender)
-        self.gender_menu.configure(state='normal')
+    def meta_vars(self):
+        return self.img_cls, self.gender, self.age, self.view
 
-    def set_age(self, result):
-        detected_age = self.normalize_choice(result[0], ['NONE', *img_classify.age])
-        self.age.set(detected_age)
-        self.age_menu.configure(state='normal')
-
-    def set_view(self, result):
-        detected_view = self.normalize_choice(result[0], img_classify.view)
-        self.view.set(detected_view)
-        self.view_menu.configure(state='normal')
+    def set_detected(self, variable, menu, value):
+        variable.set(value)
+        menu.configure(state='normal')
 
     def prep_image(self, path):
-        image = ImageOps.exif_transpose(load_image(path))
-        has_alpha = image.mode in ('RGBA', 'LA') or 'transparency' in image.info
-        if has_alpha:
-            rgba = image.convert('RGBA')
-            background = Image.new('RGBA', rgba.size, (255, 255, 255, 255))
-            image = Image.alpha_composite(background, rgba).convert('RGB')
+        image, had_alpha = flatten_alpha(ImageOps.exif_transpose(load_image(path)))
+        if had_alpha:
             print('Alpha background filled')
-        else:
-            image = image.convert('RGB')
         return image
 
     def classify_upload(self, file_path):
         try:
             print('Classifying image...')
-            classification = self.classify_input_image(file_path)
-            self.cls_res = classification
-            self.schedule(self.set_img_class, classification)
-            gender_result = img_classify.predict_gender(file_path)
-            self.gender_res = gender_result
-            self.schedule(self.set_gender, gender_result)
+            classification = img_classify.classify_image(file_path)
+            best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
+            self.schedule(self.set_detected, self.img_cls, self.image_class_menu, best_class)
+            detected_gender = self.normalize_choice(img_classify.predict_gender(file_path)[0], img_classify.gender)
+            self.schedule(self.set_detected, self.gender, self.gender_menu, detected_gender)
             age_result = img_classify.predict_age(file_path)
             view_result = img_classify.predict_view(file_path)
             self.cleanup_gpu()
-            self.age_res = age_result
-            self.schedule(self.set_age, age_result)
-            self.view_res = view_result
-            self.schedule(self.set_view, view_result)
-            best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
-            best_class = best_class if best_class in img_classify.image else img_classify.image[1]
-            detected_gender = self.normalize_choice(gender_result[0], img_classify.gender)
             detected_age = self.normalize_choice(age_result[0], ['NONE', *img_classify.age])
+            self.schedule(self.set_detected, self.age, self.age_menu, detected_age)
             detected_view = self.normalize_choice(view_result[0], img_classify.view)
+            self.schedule(self.set_detected, self.view, self.view_menu, detected_view)
             print(f'Class: {best_class.upper()}, Gender: {detected_gender.upper()}, Age: {detected_age.upper()}, View: {detected_view.upper()}')
             print('Classification finished')
-            self.schedule(self.set_widget_state, 'normal', self.image_class_menu, self.gender_menu, self.age_menu, self.view_menu)
+            self.schedule(self.set_widget_state, 'normal', *self.meta_menus())
         except Exception as e:
-            self.cls_res = None
-            self.gender_res = None
-            self.age_res = None
-            self.view_res = None
             self.schedule(print, f'Image Classification Error: {e}')
-            self.schedule(self.set_widget_state, 'normal', self.image_class_menu, self.gender_menu, self.age_menu, self.view_menu)
-            self.schedule(self.img_cls.set, 'NONE')
-            self.schedule(self.gender.set, 'NONE')
-            self.schedule(self.age.set, 'NONE')
-            self.schedule(self.view.set, 'NONE')
+            self.schedule(self.set_widget_state, 'normal', *self.meta_menus())
+            for variable in self.meta_vars():
+                self.schedule(variable.set, 'NONE')
             print(f'Classify error: {e}')
         finally:
             self.class_loading = False
@@ -779,7 +734,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.schedule(self.update_crop_state)
 
     def upload(self):
-        if self.processing or self.model_loading or self.seg_loading or self.class_loading or self.manual_mode or self.manual_loading:
+        if self.input_is_busy() or self.manual_mode:
             return
         path = filedialog.askopenfilename(title='Select input image', filetypes=[('Images', '*.png *.jpg *.jpeg *.webp *.bmp *.avif')])
         if not path:
@@ -788,39 +743,17 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             image = self.prep_image(path)
             self.input_path = path
             self.img_name = Path(path).name
-            self.crop_box = None
             self.cropping = False
-            self.crop_handle = None
-            self.crop_start = None
             self.original_image = image.copy()
             self.ratio_var.set('FREE')
             self.crop_box = self.crop_to_ratio('FREE')
             self.input_image = image.copy()
-            self.sd_input_image = None
-            self.output_image = None
-            self.show_orig = False
-            self.mask_image = None
-            self.mask_src = None
-            self.cls_res = None
-            self.gender_res = None
-            self.age_res = None
-            self.view_res = None
+            self.reset_preview_state()
             self.class_loading = True
-            self.img_cls.set('NONE')
-            self.gender.set('NONE')
-            self.age.set('NONE')
-            self.view.set('NONE')
-            self.image_class_menu.configure(state='disabled')
-            self.gender_menu.configure(state='disabled')
-            self.age_menu.configure(state='disabled')
-            self.view_menu.configure(state='disabled')
-            self.save_btn.configure(state='disabled')
-            self.cf_btn.configure(state='disabled')
-            self.generate_btn.configure(state='disabled')
-            self.reload_btn.configure(state='normal')
-            self.manual_btn.configure(state='normal')
-            self.clear_seg_btn.configure(state='normal')
-            self.reset_btn.configure(state='normal')
+            for variable in self.meta_vars():
+                variable.set('NONE')
+            self.set_widget_state('disabled', *self.meta_menus(), self.save_btn, self.cf_btn, self.generate_btn)
+            self.set_widget_state('normal', self.reload_btn, self.manual_btn, self.clear_seg_btn, self.reset_btn)
             self.show_input()
             self.show_output()
             print(f'Loaded {self.img_name}')
@@ -880,7 +813,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             print('Model not ready')
             return
         if self.manual_mode:
-            self.disable_manual_segment_mode()
+            self.disable_manual_mode()
         if self.original_image is None:
             print('No image')
             return
@@ -903,7 +836,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         else:
             print('Existing mask available • skipping auto segment')
         original_image = self.original_image.copy()
-        crop_box = self.get_effective_crop_box()
+        crop_box = self.crop_or_full()
         config = dict(config_override) if config_override is not None else dict(self.config)
         selected_class = self.img_cls.get()
         selected_gender = self.gender.get()
@@ -917,26 +850,12 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.processing = True
         self.output_image = None
         self.show_orig = False
-        self.generate_btn.configure(state='disabled')
-        self.upload_btn.configure(state='disabled')
-        self.reload_btn.configure(state='disabled')
-        self.manual_btn.configure(state='disabled')
-        self.save_btn.configure(state='disabled')
-        self.cf_btn.configure(state='disabled')
-        self.model_menu.configure(state='disabled')
-        self.image_class_menu.configure(state='disabled')
-        self.gender_menu.configure(state='disabled')
-        self.age_menu.configure(state='disabled')
-        self.view_menu.configure(state='disabled')
-        self.ratio_menu.configure(state='disabled')
+        self.set_widget_state('disabled', self.generate_btn, self.upload_btn, self.reload_btn, self.manual_btn, self.save_btn, self.cf_btn, self.model_menu, *self.meta_menus(), self.ratio_menu)
         self.start_time = time.time()
         self.show_output()
         print(f'Generation {generation_id} start')
         self.after(0, self.update_gen_state)
         threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
-
-    def classify_input_image(self, file_path):
-        return img_classify.classify_image(file_path)
 
     def composite_mask(self, base, generated, mask):
         if generated.size != base.size:
@@ -977,22 +896,22 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 self.mask_image = mask.copy()
             if np.asarray(mask, dtype=np.uint8).max() < 10:
                 raise RuntimeError('No selected segmentation area was detected by segdinosam2.')
-            self.check_stop_requested()
+            self.check_stop()
             w, h = self.generation_size(*source.size)
             init = source.resize((w, h), Image.LANCZOS)
             mask = mask.resize((w, h), Image.Resampling.NEAREST)
-            self.check_stop_requested()
+            self.check_stop()
             if seed == -1:
                 seed = torch.randint(0, 2 ** 32 - 1, (1,), device='cpu').item()
             generator = torch.Generator(device=DEVICE).manual_seed(seed)
             if self.pipe is None:
                 raise RuntimeError('Selected diffusion model is not loaded.')
             print(f'Seed {seed}')
-            self.restore_diffusion_model()
+            self.restore_pipe()
             scheduler_config = dict(self.pipe.scheduler.config)
 
             def progress(pipe, step_index, timestep, callback_kwargs):
-                self.check_stop_requested()
+                self.check_stop()
                 step = step_index + 1
                 elapsed = time.time() - self.start_time
                 remaining = max(0, (steps - step) * (elapsed / max(step, 1)))
@@ -1007,15 +926,15 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
                 result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=cfg_rescale)
-            self.check_stop_requested()
+            self.check_stop()
             generated = result.images[0].convert('RGB')
             del result
             generated = self.composite_mask(init, generated, mask)
             if esrgan_output:
                 generated = enhance(generated, output=True, logger=self.console.log)
-            self.check_stop_requested()
+            self.check_stop()
             if full_image_output:
-                final_image = self.overlay_generated_crop(original_image, generated, crop_box)
+                final_image = self.overlay_crop(original_image, generated, crop_box)
             else:
                 final_image = self.resize_output(generated)
             elapsed = time.time() - self.start_time
@@ -1044,13 +963,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.schedule(self.update_gen_state)
             self.schedule(self.reload_btn.configure, state='normal' if self.original_image is not None and not self.seg_loading else 'disabled')
             self.schedule(self.update_crop_state)
-            self.schedule(self.upload_btn.configure, state='normal')
-            self.schedule(self.model_menu.configure, state='normal')
-            self.schedule(self.image_class_menu.configure, state='normal')
-            self.schedule(self.gender_menu.configure, state='normal')
-            self.schedule(self.age_menu.configure, state='normal')
-            self.schedule(self.view_menu.configure, state='normal')
-            self.schedule(self.ratio_menu.configure, state='normal')
+            self.schedule(self.set_widget_state, 'normal', self.upload_btn, self.model_menu, *self.meta_menus(), self.ratio_menu)
 
     def time_text(self, seconds):
         seconds = max(0, int(seconds))
@@ -1060,6 +973,15 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
         return f'{minutes:02d}:{seconds:02d}'
 
+    @staticmethod
+    def canvas_size(canvas):
+        return max(1, canvas.winfo_width()), max(1, canvas.winfo_height())
+
+    def fit_to_canvas(self, canvas, image):
+        canvas_w, canvas_h = self.canvas_size(canvas)
+        fitted = ImageOps.contain(image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)
+        return fitted, (canvas_w - fitted.width) // 2, (canvas_h - fitted.height) // 2
+
     def show_input(self):
         if not hasattr(self, 'in_canvas'):
             return
@@ -1067,19 +989,14 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         image = self.input_image if self.input_image is not None else self.original_image
         if image is None:
             self.input_box = None
-            canvas_w = max(1, self.in_canvas.winfo_width())
-            canvas_h = max(1, self.in_canvas.winfo_height())
+            canvas_w, canvas_h = self.canvas_size(self.in_canvas)
             self.in_canvas.create_text(canvas_w // 2, canvas_h // 2, text='Upload Image', fill='#888888', font=('Segoe UI', 22))
             self.update_crop_state()
             return
-        canvas_w = max(1, self.in_canvas.winfo_width())
-        canvas_h = max(1, self.in_canvas.winfo_height())
-        fitted = ImageOps.contain(image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)
-        x = (canvas_w - fitted.width) // 2
-        y = (canvas_h - fitted.height) // 2
+        fitted, x, y = self.fit_to_canvas(self.in_canvas, image)
         self.input_box = (x, y, fitted.width, fitted.height)
         if self.mask_image is not None:
-            display_mask = self.compose_mask_for_display(image, fitted.size)
+            display_mask = self.view_mask(image, fitted.size)
             overlay = Image.new('RGBA', fitted.size, (0, 0, 0, 0))
             red = Image.new('RGBA', fitted.size, (255, 0, 0, 90))
             overlay = Image.composite(red, overlay, display_mask)
@@ -1102,14 +1019,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         comparison_image = self.original_image if self.full_out.get() else self.sd_input_image
         image = comparison_image if self.show_orig else self.output_image
         if image is None:
-            canvas_w = max(1, self.out_canvas.winfo_width())
-            canvas_h = max(1, self.out_canvas.winfo_height())
+            canvas_w, canvas_h = self.canvas_size(self.out_canvas)
             if self.processing and self.original_image is not None:
-                fitted = ImageOps.contain(self.original_image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)
+                fitted, x, y = self.fit_to_canvas(self.out_canvas, self.original_image)
                 fitted = ImageEnhance.Brightness(fitted).enhance(0.25).filter(ImageFilter.GaussianBlur(6))
                 self.output_pic = ImageTk.PhotoImage(fitted)
-                x = (canvas_w - fitted.width) // 2
-                y = (canvas_h - fitted.height) // 2
                 self.out_canvas.create_image(x, y, anchor='nw', image=self.output_pic)
                 self.play_gif(LOADING_GIF, self.out_canvas, canvas_w / 2, canvas_h / 2, speed=1.2)
             else:
@@ -1118,12 +1032,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 self.out_canvas.create_text(canvas_w // 2, canvas_h // 2, text=label, fill='#888888', font=('Segoe UI', 18))
             return
         self.stop_gif(LOADING_GIF, self.out_canvas)
-        canvas_w = max(1, self.out_canvas.winfo_width())
-        canvas_h = max(1, self.out_canvas.winfo_height())
-        fitted = ImageOps.contain(image, (canvas_w, canvas_h), method=Image.Resampling.LANCZOS)
+        fitted, x, y = self.fit_to_canvas(self.out_canvas, image)
         self.output_pic = ImageTk.PhotoImage(fitted)
-        x = (canvas_w - fitted.width) // 2
-        y = (canvas_h - fitted.height) // 2
         self.out_canvas.create_image(x, y, anchor='nw', image=self.output_pic)
 
     def switch_output_image(self):
@@ -1167,8 +1077,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             comparison = Image.new('RGB', (left_width + right_width, target_height), (0, 0, 0))
             comparison.paste(original, (0, 0))
             comparison.paste(output, (left_width, 0))
-            if path.suffix.lower() in ('.jpg', '.jpeg'):
-                comparison = comparison.convert('RGB')
             comparison.save(path)
             print('Comparison Saved')
         except Exception as e:

@@ -497,7 +497,7 @@ class PoseChangerApp(SDIdealImageMixin):
             self.clear_memory()
             print("[1/8] Preparing source image...",flush=True)
             with Image.open(self.source_path) as source_file:
-                source_raw = self.filter_sd_inpainting_image(source_file)
+                source_raw = self.filter_sd_image(source_file)
             source_img = self.prepare_image(source_raw,(WIDTH,HEIGHT))
             del source_raw
             skeleton_img = self.render_pose_json(pose_data,(WIDTH,HEIGHT)).convert("RGB")

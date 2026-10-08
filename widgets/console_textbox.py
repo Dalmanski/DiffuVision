@@ -3,7 +3,7 @@ import sys
 import customtkinter as ctk
 
 class ConsoleTextBox(ctk.CTkTextbox):
-    def __init__(self, parent, height=260, wrap='none', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0', **kwargs):
+    def __init__(self, parent, height=260, wrap='word', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0', **kwargs):
         super().__init__(parent, height=height, wrap=wrap, font=font, fg_color=fg_color, text_color=text_color, **kwargs)
         self.configure(state='disabled')
 
@@ -11,13 +11,10 @@ class ConsoleTextBox(ctk.CTkTextbox):
         try:
             self.configure(state='normal')
             if live:
-                line_start = self.index('end-1c linestart')
-                self.delete(line_start, 'end-1c')
-                self.insert('end', text)
-            else:
-                self.insert('end', text)
-                if not text.endswith('\n'):
-                    self.insert('end', '\n')
+                self.delete(self.index('end-1c linestart'), 'end-1c')
+            self.insert('end', text)
+            if not live and not text.endswith('\n'):
+                self.insert('end', '\n')
             self.see('end')
             self.configure(state='disabled')
         except Exception:
@@ -62,10 +59,8 @@ class ConsoleRedirect:
         if not self.show_in_console or not value or '[DEBUG]' in value:
             return len(value)
         if '\r' in value:
-            parts = value.split('\r')
-            value = parts[-1]
-            self.console.log(value, live=True)
-            return len(str(text))
+            self.console.log(value.split('\r')[-1], live=True)
+            return len(value)
         self.buffer += value
         while "\n" in self.buffer:
             line, self.buffer = self.buffer.split("\n", 1)

@@ -11,12 +11,3 @@ def center_window(window, width=None, height=None):
     y = max(0, (window.winfo_screenheight() - height - titlebar - border) // 2)
     window.geometry(f"+{x}+{y}")
 
-
-def center_popup(window, width, height):
-    center_window(window, width=width, height=height)
-
-"""
-from utils.centwin import center_window
-
-center_window(self, width=67, height=67)
-"""

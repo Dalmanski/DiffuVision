@@ -153,14 +153,6 @@ class DictionaryEditor(ctk.CTkFrame):
         self.update_value()
         return self.values
 
-class BooleanEditor(ctk.CTkOptionMenu):
-    def __init__(self, parent, value):
-        super().__init__(parent, values=["True", "False"])
-        self.set(value)
-
-    def get(self):
-        return self.get()
-
 class SettingsPopup(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)

@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
+from modules.sd_ideal import limit_longest_side
+from utils.model_utils import clear_gpu
 try:
     from basicsr.archs.rrdbnet_arch import RRDBNet
     from realesrgan import RealESRGANer
@@ -18,20 +20,7 @@ _esrgan = None
 def cleanup():
     global _esrgan
     _esrgan = None
-    try:
-        if DEVICE == "cuda":
-            torch.cuda.synchronize()
-    except Exception:
-        pass
-    if DEVICE == "cuda":
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
-        try:
-            torch.cuda.ipc_collect()
-        except Exception:
-            pass
+    clear_gpu(synchronize=True)
 
 def load_esrgan(logger=None):
     global _esrgan
@@ -49,16 +38,6 @@ def load_esrgan(logger=None):
     _esrgan = RealESRGANer(scale=4, model_path=str(ESRGAN_PATH), model=RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4), tile=256, tile_pad=10, pre_pad=0, half=DEVICE == "cuda", gpu_id=0 if DEVICE == "cuda" else None)
     return _esrgan
 
-def _resize_output(image, output_target):
-    w, h = image.size
-    longest = max(w, h)
-    if longest <= output_target:
-        return image
-    scale = output_target / longest
-    nw = max(8, int(round(w * scale)))
-    nh = max(8, int(round(h * scale)))
-    return image.resize((nw, nh), Image.LANCZOS)
-
 def enhance(image, output=False, logger=None, output_target=1080):
     esrgan = load_esrgan(logger)
     if logger:
@@ -68,7 +47,7 @@ def enhance(image, output=False, logger=None, output_target=1080):
     cleanup()
     result = Image.fromarray(cv2.cvtColor(out, cv2.COLOR_BGR2RGB)).convert("RGB")
     if output:
-        result = _resize_output(result, output_target)
+        result = limit_longest_side(result, output_target)
         if logger:
             logger(f"Output enhancement complete • {result.width}x{result.height}")
     return result

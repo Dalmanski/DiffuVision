@@ -57,9 +57,9 @@ def _darken(color, amount=0.28):
 class GradientBtn(ctk.CTkFrame):
     def __init__(self, master, text='', command=None, **kwargs):
         self._text_anchor = kwargs.pop('anchor', 'center')
-        self._uses_theme_corner_radius = 'corner_radius' not in kwargs
-        self._uses_theme_border_width = 'border_width' not in kwargs
-        self._uses_theme_border_color = 'border_color' not in kwargs
+        self._auto_radius = 'corner_radius' not in kwargs
+        self._auto_border_width = 'border_width' not in kwargs
+        self._auto_border_color = 'border_color' not in kwargs
         self._corner_radius = kwargs.pop('corner_radius', _theme_value('corner_radius', 6))
         self._border_width = kwargs.pop('border_width', _theme_value('border_width', 0))
         self._border_color = _resolve_color(kwargs.pop('border_color', _theme_color('border_color')))
@@ -67,11 +67,11 @@ class GradientBtn(ctk.CTkFrame):
         self._state = kwargs.pop('state', 'normal')
         self._text = text
         self._font = kwargs.pop('font', font(weight='bold'))
-        self._uses_theme_text_color = 'text_color' not in kwargs
-        self._uses_theme_fg_color = 'fg_color' not in kwargs
-        self._uses_theme_hover_color = 'hover_color' not in kwargs
+        self._auto_text_color = 'text_color' not in kwargs
+        self._auto_fg = 'fg_color' not in kwargs
+        self._auto_hover = 'hover_color' not in kwargs
         self._text_color = _resolve_color(kwargs.pop('text_color', _theme_color('text_color')))
-        self._text_color_disabled = _resolve_color(_theme_color('text_color_disabled'))
+        self._text_disabled = _resolve_color(_theme_color('text_color_disabled'))
         self._start = _resolve_color(kwargs.pop('fg_color', _theme_color('fg_color')))
         self._end = _resolve_color(kwargs.pop('hover_color', _darken(self._start)))
         self._hovered = False
@@ -133,24 +133,24 @@ class GradientBtn(ctk.CTkFrame):
             border = _rgb(self._border_color)
             draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=self._corner_radius * scaling, outline=border + (255,), width=max(1, int(self._border_width * scaling)))
         self._image = ctk.CTkImage(light_image=image, dark_image=image, size=(width / scaling, height / scaling))
-        text_color = self._text_color if self._state == 'normal' else self._text_color_disabled
+        text_color = self._text_color if self._state == 'normal' else self._text_disabled
         self._label.configure(image=self._image, text=self._text, text_color=text_color, font=self._font)
         self._place_label()
 
     def refresh_theme(self):
-        if self._uses_theme_text_color:
+        if self._auto_text_color:
             self._text_color = _theme_color('text_color')
-        if self._uses_theme_fg_color:
+        if self._auto_fg:
             self._start = _theme_color('fg_color')
-        if self._uses_theme_hover_color:
+        if self._auto_hover:
             self._end = _darken(self._start)
-        if self._uses_theme_border_color:
+        if self._auto_border_color:
             self._border_color = _theme_color('border_color')
-        if self._uses_theme_corner_radius:
+        if self._auto_radius:
             self._corner_radius = _theme_value('corner_radius', 6)
-        if self._uses_theme_border_width:
+        if self._auto_border_width:
             self._border_width = _theme_value('border_width', 0)
-        self._text_color_disabled = _resolve_color(_theme_color('text_color_disabled'))
+        self._text_disabled = _resolve_color(_theme_color('text_color_disabled'))
         self._render()
 
     def configure(self, **kwargs):
@@ -163,25 +163,25 @@ class GradientBtn(ctk.CTkFrame):
         if 'command' in button_kwargs:
             self._command = button_kwargs['command']
         if 'fg_color' in button_kwargs:
-            self._uses_theme_fg_color = False
+            self._auto_fg = False
             self._start = _resolve_color(button_kwargs['fg_color'])
             self._end = _darken(self._start)
         if 'hover_color' in button_kwargs:
-            self._uses_theme_hover_color = False
+            self._auto_hover = False
             self._end = _resolve_color(button_kwargs['hover_color'])
         if 'text_color' in button_kwargs:
-            self._uses_theme_text_color = False
+            self._auto_text_color = False
             self._text_color = _resolve_color(button_kwargs['text_color'])
         if 'font' in button_kwargs:
             self._font = button_kwargs['font']
         if 'corner_radius' in button_kwargs:
-            self._uses_theme_corner_radius = False
+            self._auto_radius = False
             self._corner_radius = button_kwargs['corner_radius']
         if 'border_width' in button_kwargs:
-            self._uses_theme_border_width = False
+            self._auto_border_width = False
             self._border_width = button_kwargs['border_width']
         if 'border_color' in button_kwargs:
-            self._uses_theme_border_color = False
+            self._auto_border_color = False
             self._border_color = _resolve_color(button_kwargs['border_color'])
         if 'anchor' in button_kwargs:
             self._text_anchor = button_kwargs['anchor']

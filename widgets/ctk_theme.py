@@ -57,7 +57,7 @@ class ConfigCTkTheme:
 						inherits_parent_bg = False
 
 				section = next((base.__name__ for base in type(widget).__mro__ if base.__name__ in current_theme and base.__name__.startswith('CTk')), None)
-				scrollable_fill_updated = False
+				fill_updated = False
 				if section:
 					old_options = previous_theme.get(section, {})
 					for key, value in current_theme[section].items():
@@ -73,7 +73,7 @@ class ConfigCTkTheme:
 							if uses_old_default:
 								widget.configure(**{key: value})
 								if section == 'CTkScrollableFrame' and key == 'fg_color':
-									scrollable_fill_updated = True
+									fill_updated = True
 						except Exception:
 							continue
 
@@ -85,7 +85,7 @@ class ConfigCTkTheme:
 					old_surface = old_fg
 				if new_fg != 'transparent':
 					new_surface = new_fg
-				if scrollable_fill_updated:
+				if fill_updated:
 					old_surface = previous_theme.get('CTkFrame', {}).get('fg_color', old_surface)
 					new_surface = current_theme[section]['fg_color']
 				for child in widget.winfo_children():

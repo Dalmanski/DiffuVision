@@ -1,5 +1,3 @@
-import os
-import socket
 import urllib.request
 from pathlib import Path
 import numpy as np
@@ -8,6 +6,7 @@ from PIL import ImageOps
 from torch.nn.functional import normalize
 from transformers import CLIPModel, CLIPProcessor
 from utils.image_loader import load_image
+from utils.model_utils import load_hf_model
 REAL = 'photorealistic'
 ANIME = 'anime'
 THREE_D = '3d'
@@ -82,15 +81,6 @@ def _load_pose():
             message = _short(error)
     return None, None, message
 
-def _load_hf_model(loader, model_name, **kwargs):
-    offline = os.environ.get('HF_HUB_OFFLINE', '').lower() in {'1', 'true', 'yes', 'on'}
-    if not offline:
-        try:
-            socket.create_connection(('huggingface.co', 443), timeout=1).close()
-        except OSError:
-            offline = True
-    kwargs.setdefault('local_files_only', offline)
-    return loader.from_pretrained(model_name, **kwargs)
 MP, POSE, POSE_ERROR = _load_pose()
 print(f'Pose landmarker: {"ready" if POSE else "unavailable - " + POSE_ERROR}')
 CLASS_PROMPTS = [list(dict.fromkeys(template.format(s=subject) for template in templates for subject in CLASS_SUBJECTS)) for templates in CLASS_TEMPLATES]
@@ -98,8 +88,8 @@ VIEW_PROMPTS = [[template.format(label=label, phrase=phrase, s=subject) for temp
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
 print('Loading CLIP model...')
-processor = _load_hf_model(CLIPProcessor, MODEL_NAME, use_fast=False)
-model = _load_hf_model(CLIPModel, MODEL_NAME).to(device)
+processor = load_hf_model(CLIPProcessor, MODEL_NAME, use_fast=False)
+model = load_hf_model(CLIPModel, MODEL_NAME).to(device)
 model.eval()
 
 def _encode_text(prompts):
@@ -113,7 +103,7 @@ CLASS_EMBEDDINGS = _encode_groups(CLASS_PROMPTS)
 GENDER_EMBEDDINGS = _encode_groups(GENDER_PROMPTS)
 AGE_EMBEDDINGS = _encode_text(AGE_PROMPTS)
 VIEW_EMBEDDINGS = _encode_groups(VIEW_PROMPTS)
-VIEW_GROUP_EMBEDDINGS = torch.cat([VIEW_EMBEDDINGS[:3], normalize(VIEW_EMBEDDINGS[3:5].mean(dim=0, keepdim=True), dim=-1), VIEW_EMBEDDINGS[5:]])
+VIEW_GROUP_EMB = torch.cat([VIEW_EMBEDDINGS[:3], normalize(VIEW_EMBEDDINGS[3:5].mean(dim=0, keepdim=True), dim=-1), VIEW_EMBEDDINGS[5:]])
 
 def _image_features(pictures):
     inputs = processor(images=pictures, return_tensors='pt').to(device)
@@ -203,7 +193,7 @@ def predict_age(image_path):
     return age[index], confidence
 
 def predict_view(image_path):
-    probabilities = _predict_scores(image_path, VIEW_GROUP_EMBEDDINGS)
+    probabilities = _predict_scores(image_path, VIEW_GROUP_EMB)
     _print_scores('view', image_path, VIEW_GROUPS, probabilities)
     pose = _pose_view(image_path)
     adjusted = probabilities.copy()
