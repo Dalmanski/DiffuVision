@@ -19,9 +19,9 @@ from widgets.gif_anim import GifAnimationMixin
 from utils.config_manager import ConfigManager
 from utils.access_gate import open_payload
 from utils.image_loader import load_image, flatten_alpha
-from utils.dupfilename import prompt_save_path
 from utils.model_utils import clear_gpu
 from modules.sd_ideal import SDIdealImageMixin
+from modules.save_output import SaveOutputMixin, SAVE_MODES
 
 BASE_DIR = Path(__file__).resolve().parent
 ConfigManager.load_env(BASE_DIR)
@@ -38,7 +38,7 @@ LOADING_GIF = 'images\\gif\\loading.gif'
 class GenerationStopped(Exception):
     pass
 
-class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixin, ctk.CTk):
+class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixin, SaveOutputMixin, ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('DiffuVision - Inpainting with Stable Diffusion')
@@ -298,8 +298,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.save_clear_row.grid_columnconfigure(3, weight=0)
         self.save_btn = GradientBtn(self.save_clear_row, text='SAVE IMAGE AS', command=self.save, state='disabled', height=40)
         self.save_btn.grid(row=0, column=0, sticky='ew', padx=(0, 5))
-        self.cf_btn = GradientBtn(self.save_clear_row, text='CF', command=self.save_compare, state='disabled', width=60, height=40)
-        self.cf_btn.grid(row=0, column=1, sticky='e', padx=5)
+        self.save_mode = ctk.StringVar(value=SAVE_MODES[0])
+        self.save_mode_menu = ctk.CTkOptionMenu(self.save_clear_row, variable=self.save_mode, values=SAVE_MODES, state='disabled', width=140, height=40)
+        self.save_mode_menu.grid(row=0, column=1, sticky='e', padx=5)
         self.clear_btn = GradientBtn(self.save_clear_row, text='CLEAR', command=self.console.clear, height=40, width=100)
         self.clear_btn.grid(row=0, column=2, sticky='e', padx=(5, 0))
         self.settings_btn = GradientBtn(self.save_clear_row, text='⚙️', command=self.open_settings, height=40, width=46)
@@ -389,6 +390,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             selected.discard(path)
 
     def lora_changed(self, path, variable):
+        if self.processing:
+            variable.set(path in self.selected_loras)
+            return
         self.update_selection(self.selected_loras, path, variable)
         self.apply_loras()
         self.refresh_lora_menu()
@@ -402,6 +406,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             return
         names = [name for path, name in loaded_loras if path in self.selected_loras]
         if names:
+            pipe.enable_lora()
             pipe.set_adapters(names)
         else:
             pipe.disable_lora()
@@ -704,16 +709,16 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             print('Alpha background filled')
         return image
 
-    def classify_upload(self, file_path):
+    def classify_upload(self, image):
         try:
             print('Classifying image...')
-            classification = img_classify.classify_image(file_path)
+            classification = img_classify.classify_image(image)
             best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
             self.schedule(self.set_detected, self.img_cls, self.image_class_menu, best_class)
-            detected_gender = self.normalize_choice(img_classify.predict_gender(file_path)[0], img_classify.gender)
+            detected_gender = self.normalize_choice(img_classify.predict_gender(image)[0], img_classify.gender)
             self.schedule(self.set_detected, self.gender, self.gender_menu, detected_gender)
-            age_result = img_classify.predict_age(file_path)
-            view_result = img_classify.predict_view(file_path)
+            age_result = img_classify.predict_age(image)
+            view_result = img_classify.predict_view(image)
             self.cleanup_gpu()
             detected_age = self.normalize_choice(age_result[0], ['NONE', *img_classify.age])
             self.schedule(self.set_detected, self.age, self.age_menu, detected_age)
@@ -752,12 +757,12 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.class_loading = True
             for variable in self.meta_vars():
                 variable.set('NONE')
-            self.set_widget_state('disabled', *self.meta_menus(), self.save_btn, self.cf_btn, self.generate_btn)
+            self.set_widget_state('disabled', *self.meta_menus(), self.save_btn, self.save_mode_menu, self.generate_btn)
             self.set_widget_state('normal', self.reload_btn, self.manual_btn, self.clear_seg_btn, self.reset_btn)
             self.show_input()
             self.show_output()
             print(f'Loaded {self.img_name}')
-            threading.Thread(target=self.classify_upload, args=(path,), daemon=True).start()
+            threading.Thread(target=self.classify_upload, args=(image.copy(),), daemon=True).start()
         except Exception as e:
             print(f'Image Error: {e}')
 
@@ -850,7 +855,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.processing = True
         self.output_image = None
         self.show_orig = False
-        self.set_widget_state('disabled', self.generate_btn, self.upload_btn, self.reload_btn, self.manual_btn, self.save_btn, self.cf_btn, self.model_menu, *self.meta_menus(), self.ratio_menu)
+        self.set_widget_state('disabled', self.generate_btn, self.upload_btn, self.reload_btn, self.manual_btn, self.save_btn, self.save_mode_menu, self.model_menu, *self.meta_menus(), self.ratio_menu)
         self.start_time = time.time()
         self.show_output()
         print(f'Generation {generation_id} start')
@@ -864,6 +869,14 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             mask = mask.resize(base.size, Image.Resampling.NEAREST)
         return Image.composite(generated, base, mask).convert('RGB')
 
+    def apply_embeddings(self, prompt):
+        tokens = {path: token for path, token in self.embedding_paths.items() if path in self.loaded_embeddings}
+        blocked = {token.lower() for path, token in tokens.items() if path not in self.selected_embeddings}
+        parts = [part.strip() for part in prompt.split(',') if part.strip() and part.strip().lower() not in blocked]
+        present = {part.lower() for part in parts}
+        added = [token for path, token in tokens.items() if path in self.selected_embeddings and token.lower() not in present]
+        return ', '.join((*added, *parts))
+
     def worker(self, source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id):
         try:
             steps = int(config.get('steps'))
@@ -872,9 +885,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             seed = int(config.get('seed', -1))
             cfg_rescale = float(config.get('cfg_rescale'))
             positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender)
-            embedding_tokens = [self.embedding_paths[path] for path in self.selected_embeddings if path in self.loaded_embeddings]
-            if embedding_tokens:
-                negative_prompt = ', '.join((*embedding_tokens, negative_prompt)) if negative_prompt else ', '.join(embedding_tokens)
+            negative_prompt = self.apply_embeddings(negative_prompt)
             if source is None:
                 print('Preprocessing...')
                 source = self.prep_input(original_image)
@@ -934,7 +945,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 generated = enhance(generated, output=True, logger=self.console.log)
             self.check_stop()
             if full_image_output:
-                final_image = self.overlay_crop(original_image, generated, crop_box)
+                final_image = self.overlay_crop(original_image, generated, crop_box, mask)
             else:
                 final_image = self.resize_output(generated)
             elapsed = time.time() - self.start_time
@@ -944,7 +955,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 self.show_orig = False
                 self.show_output()
                 self.save_btn.configure(state='normal')
-                self.cf_btn.configure(state='normal')
+                self.save_mode_menu.configure(state='normal')
                 if autosave:
                     self.save()
 
@@ -1041,46 +1052,6 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             return
         self.show_orig = not self.show_orig
         self.show_output()
-
-    def save(self):
-        if self.output_image is None:
-            return
-        path = prompt_save_path('Save generated image', f'{Path(self.img_name or "image").stem}_DiffuVision', self.input_path, self.last_dir)
-        if path is None:
-            return
-        self.last_dir = path.parent
-        try:
-            output = self.output_image
-            if path.suffix.lower() in ('.jpg', '.jpeg'):
-                output = output.convert('RGB')
-            output.save(path)
-            print('Saved')
-        except Exception as e:
-            print(f'Save Error: {e}')
-
-    def save_compare(self):
-        if self.original_image is None or self.output_image is None:
-            return
-        comparison_image = self.original_image if self.full_out.get() else (self.sd_input_image or self.original_image)
-        path = prompt_save_path('Save comparison image', f'{Path(self.img_name or "image").stem}_DiffuVision_CF', self.input_path, self.last_dir)
-        if path is None:
-            return
-        self.last_dir = path.parent
-        try:
-            original = comparison_image.convert('RGB')
-            output = self.output_image.convert('RGB')
-            target_height = max(original.height, output.height)
-            left_width = int(original.width * target_height / original.height)
-            right_width = int(output.width * target_height / output.height)
-            original = original.resize((left_width, target_height), Image.Resampling.LANCZOS)
-            output = output.resize((right_width, target_height), Image.Resampling.LANCZOS)
-            comparison = Image.new('RGB', (left_width + right_width, target_height), (0, 0, 0))
-            comparison.paste(original, (0, 0))
-            comparison.paste(output, (left_width, 0))
-            comparison.save(path)
-            print('Comparison Saved')
-        except Exception as e:
-            print(f'Comparison Save Error: {e}')
 
 if __name__ == '__main__':
     app = App()

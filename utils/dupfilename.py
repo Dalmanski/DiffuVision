@@ -10,20 +10,20 @@ def _initial_save_dir(input_path=None, last_dir=None):
     return Path.cwd()
 
 
-def prompt_save_path(title, base_name, input_path=None, last_dir=None):
+def prompt_save_path(title, base_name, input_path=None, last_dir=None, ext='.png', filetypes=None):
     initial_dir = _initial_save_dir(input_path=input_path, last_dir=last_dir)
-    candidate = initial_dir / f'{base_name}.png'
+    candidate = initial_dir / f'{base_name}{ext}'
     counter = 1
     while candidate.exists():
-        candidate = initial_dir / f'{base_name} ({counter}).png'
+        candidate = initial_dir / f'{base_name} ({counter}){ext}'
         counter += 1
     path = filedialog.asksaveasfilename(
         title=title,
         initialdir=str(initial_dir),
         initialfile=candidate.name,
         confirmoverwrite=True,
-        defaultextension='.png',
-        filetypes=[('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')],
+        defaultextension=ext,
+        filetypes=filetypes or [('PNG', '*.png'), ('JPEG', '*.jpg *.jpeg'), ('WebP', '*.webp')],
     )
     if not path:
         return None

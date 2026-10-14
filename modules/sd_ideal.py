@@ -66,11 +66,15 @@ class SDIdealImageMixin:
     def resize_output(self, image):
         return limit_longest_side(image)
 
-    def overlay_crop(self, original_image, generated_crop, crop_box):
+    def overlay_crop(self, original_image, generated_crop, crop_box, mask=None):
         original = original_image.convert('RGB').copy()
         x1, y1, x2, y2 = pixel_box(crop_box, original.size)
-        generated_crop = generated_crop.resize((x2 - x1, y2 - y1), Image.Resampling.LANCZOS)
-        original.paste(generated_crop, (x1, y1))
+        size = (x2 - x1, y2 - y1)
+        generated_crop = generated_crop.resize(size, Image.Resampling.LANCZOS)
+        if mask is None:
+            original.paste(generated_crop, (x1, y1))
+        else:
+            original.paste(generated_crop, (x1, y1), mask.convert('L').resize(size, Image.Resampling.BILINEAR))
         return original
 
     def generation_size(self, width, height):

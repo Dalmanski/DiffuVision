@@ -44,6 +44,7 @@ NEG_OVERLAP_MAX = 0.92
 MIN_BOX_AREA_RATIO = 0.002
 DUP_IOU_THRESHOLD = 0.55
 NESTED_THRESHOLD = 0.90
+BOX_MARGIN = 0.04
 MAX_DETECTIONS = {"clothing": 2, "person": 8, "negative": 2}
 MIN_MASK_AREA = 100
 MIN_KEEP_RATIO = 0.10
@@ -363,12 +364,12 @@ class GroundingDINO(HFModel):
         areas = [_box_area(box) for box in boxes]
         for i in range(len(boxes)):
             for j in range(len(boxes)):
-                if i == j or not keep[j] or labels[i] != labels[j]:
+                if i == j or not keep[i] or not keep[j] or labels[i] != labels[j]:
                     continue
-                if self.box_containment(boxes[i], boxes[j]) >= NESTED_THRESHOLD and areas[j] > areas[i]:
-                    keep[i] = False
-                    print(f"  Nested box removed: {labels[i]}")
-                    break
+                if self.box_containment(boxes[j], boxes[i]) >= NESTED_THRESHOLD and areas[j] > areas[i]:
+                    loser = i if scores[i] <= scores[j] else j
+                    keep[loser] = False
+                    print(f"  Nested box removed: {labels[loser]} score={scores[loser]:.3f}")
         kept = [index for index in range(len(boxes)) if keep[index]]
         return [boxes[i] for i in kept], [labels[i] for i in kept], [scores[i] for i in kept]
 
@@ -465,7 +466,7 @@ class SAM2:
     def predict(self, box):
         if self.predictor is None:
             raise RuntimeError("SAM 2 is not loaded.")
-        masks, scores, _ = self.predictor.predict(box=box, multimask_output=True)
+        masks, scores, _ = self.predictor.predict(box=box, multimask_output=False)
         if masks is None or len(masks) == 0:
             raise RuntimeError("SAM 2 returned no masks.")
         scores = np.asarray(scores).reshape(-1)
@@ -473,9 +474,12 @@ class SAM2:
         return np.squeeze(np.asarray(masks[best_index])).astype(bool), float(scores[best_index])
 
     @staticmethod
-    def clip_mask(mask, box, shape):
+    def clip_mask(mask, box, shape, margin=0.0):
         height, width = shape
-        x1, y1, x2, y2 = [int(round(value)) for value in box]
+        x1, y1, x2, y2 = [float(value) for value in box]
+        pad_x = (x2 - x1) * margin
+        pad_y = (y2 - y1) * margin
+        x1, y1, x2, y2 = [int(round(value)) for value in (x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y)]
         x1 = max(0, min(width - 1, x1))
         y1 = max(0, min(height - 1, y1))
         x2 = max(0, min(width - 1, x2))
@@ -606,7 +610,7 @@ class SegDinoSAM2:
             self.sam2.load()
             self.sam2.set_image(image_np)
         for box, label in zip(positive_boxes, positive_labels):
-            mask = self.sam2.clip_mask(self.sam2.predict(box)[0], box, shape)
+            mask = self.sam2.clip_mask(self.sam2.predict(box)[0], box, shape, BOX_MARGIN)
             if np.any(mask):
                 positive_masks.append(mask.astype(bool))
                 pos_mask_labels.append(label)
@@ -636,11 +640,14 @@ class SegDinoSAM2:
         occupied = np.zeros(shape, dtype=bool)
         for mask, label in zip(positive_masks, pos_mask_labels):
             original_area = np.count_nonzero(mask)
-            cleaned = mask & ~negative_union & ~occupied
-            cleaned_area = np.count_nonzero(cleaned)
-            if cleaned_area < MIN_MASK_AREA:
+            kept = mask & ~negative_union
+            kept_area = np.count_nonzero(kept)
+            if kept_area < MIN_MASK_AREA:
                 continue
-            if original_area > 0 and cleaned_area < int(original_area * MIN_KEEP_RATIO):
+            if original_area > 0 and kept_area < int(original_area * MIN_KEEP_RATIO):
+                continue
+            cleaned = kept & ~occupied
+            if not np.any(cleaned):
                 continue
             cleaned_masks.append(cleaned.astype(bool))
             cleaned_labels.append(label)

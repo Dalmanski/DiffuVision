@@ -2,7 +2,7 @@ import urllib.request
 from pathlib import Path
 import numpy as np
 import torch
-from PIL import ImageOps
+from PIL import Image, ImageOps
 from torch.nn.functional import normalize
 from transformers import CLIPModel, CLIPProcessor
 from utils.image_loader import load_image
@@ -28,7 +28,9 @@ ADULT = 'adult'
 MIDLIFE = 'middle-aged'
 OLD = 'elderly'
 age = [CHILD, TEEN, YOUTH, ADULT, MIDLIFE, OLD]
-AGE_PROMPTS = [f'a {IMAGE_PROMPT} of a {age_name} adult' if age_name in (MIDLIFE, OLD) else f'a {IMAGE_PROMPT} of a {age_name}' for age_name in age]
+AGE_TERMS = {CHILD: ['a child', 'a kid'], TEEN: ['a teenager', 'an adolescent'], YOUTH: ['a young adult', 'a person in their twenties'], ADULT: ['an adult', 'a person in their thirties'], MIDLIFE: ['a middle-aged adult', 'a person in their fifties'], OLD: ['an elderly person', 'an old person']}
+AGE_TEMPLATES = [f'a {IMAGE_PROMPT} of {{term}}', 'a portrait of {term}', 'the face of {term}']
+AGE_PROMPTS = [[template.format(term=term) for template in AGE_TEMPLATES for term in AGE_TERMS[age_name]] for age_name in age]
 Fview = 'front view'
 Tview = 'top view'
 Bview = 'back view'
@@ -101,12 +103,31 @@ def _encode_groups(groups):
     return torch.stack([normalize(_encode_text(prompts).mean(dim=0), dim=0) for prompts in groups])
 CLASS_EMBEDDINGS = _encode_groups(CLASS_PROMPTS)
 GENDER_EMBEDDINGS = _encode_groups(GENDER_PROMPTS)
-AGE_EMBEDDINGS = _encode_text(AGE_PROMPTS)
+AGE_EMBEDDINGS = _encode_groups(AGE_PROMPTS)
 VIEW_EMBEDDINGS = _encode_groups(VIEW_PROMPTS)
 VIEW_GROUP_EMB = torch.cat([VIEW_EMBEDDINGS[:3], normalize(VIEW_EMBEDDINGS[3:5].mean(dim=0, keepdim=True), dim=-1), VIEW_EMBEDDINGS[5:]])
 
+PAD_COLOR = tuple(int(round(value * 255)) for value in processor.image_processor.image_mean)
+
+def _square(picture):
+    width, height = picture.size
+    if width == height:
+        return picture
+    side = max(width, height)
+    canvas = Image.new('RGB', (side, side), PAD_COLOR)
+    canvas.paste(picture, ((side - width) // 2, (side - height) // 2))
+    return canvas
+
+def _rgb(source):
+    if isinstance(source, Image.Image):
+        return source.convert('RGB')
+    return ImageOps.exif_transpose(load_image(source)).convert('RGB')
+
+def _name(source):
+    return 'image' if isinstance(source, Image.Image) else Path(source).name
+
 def _image_features(pictures):
-    inputs = processor(images=pictures, return_tensors='pt').to(device)
+    inputs = processor(images=[_square(picture) for picture in pictures], return_tensors='pt').to(device)
     with torch.no_grad():
         return normalize(model.get_image_features(**inputs), dim=-1)
 
@@ -129,7 +150,7 @@ def _head_crop(picture):
     return picture.crop((int(max(center[0] - half, 0)), int(max(center[1] - half * 1.2, 0)), int(min(center[0] + half, width)), int(min(center[1] + half * 0.8, height))))
 
 def _picture(image_path, head=False):
-    picture = load_image(image_path).convert('RGB')
+    picture = _rgb(image_path)
     crop = _head_crop(picture) if head else None
     if head:
         print(f'  head crop: {"used" if crop is not None else "not found, using full image"}')
@@ -141,7 +162,7 @@ def _predict_scores(image_path, embeddings, head=False):
         return (model.logit_scale.exp() * features @ embeddings.T).softmax(dim=-1).cpu().numpy()[0]
 
 def _faces_right(image_path):
-    picture = load_image(image_path).convert('RGB')
+    picture = _rgb(image_path)
     scores = _image_features([picture, ImageOps.mirror(picture)]) @ VIEW_EMBEDDINGS[3:5].T
     difference = scores[:, 1] - scores[:, 0]
     return bool(difference[0] > difference[1])
@@ -150,7 +171,7 @@ def _pose_view(image_path):
     if POSE is None:
         print(f'  pose: unavailable - {POSE_ERROR}')
         return None
-    picture = load_image(image_path).convert('RGB')
+    picture = _rgb(image_path)
     points = _landmarks(picture)
     if points is None:
         print('  pose: no person found')
@@ -166,7 +187,7 @@ def _pose_view(image_path):
     return ratio < SIDE_RATIO, points[0].x > ear.x, (lower > LOWER_RATIO if lower_visible else None)
 
 def _print_scores(title, image_path, labels, probabilities):
-    print(f'[{title}] {Path(image_path).name}')
+    print(f'[{title}] {_name(image_path)}')
     for label, probability in sorted(zip(labels, probabilities), key=lambda item: item[1], reverse=True):
         print(f'  {label:<18} {probability * 100:6.2f}%')
 
@@ -189,7 +210,7 @@ def predict_gender(image_path):
     return GENDER_NAMES[index], confidence
 
 def predict_age(image_path):
-    index, confidence = _predict(image_path, AGE_EMBEDDINGS, 'age', age)
+    index, confidence = _predict(image_path, AGE_EMBEDDINGS, 'age', age, True)
     return age[index], confidence
 
 def predict_view(image_path):

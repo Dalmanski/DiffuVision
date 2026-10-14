@@ -12,6 +12,7 @@ SAM2_CKPT_NAME = "sam2.1_hiera_small.pt"
 SAM2_CKPT_PATH = Path("checkpoints") / SAM2_CKPT_NAME
 SAM2_CONFIG_NAME = "sam2.1_hiera_s.yaml"
 SAM2_CONFIG_PATH = Path("sam2") / "configs" / "sam2.1" / SAM2_CONFIG_NAME
+SMALLEST_SCORE_RATIO = 0.80
 
 def _has_sam2_files(directory):
     return (directory / SAM2_CKPT_PATH).is_file() and (directory / SAM2_CONFIG_PATH).is_file()
@@ -112,10 +113,13 @@ class SAM2Segmenter:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 masks, scores, _ = self.predictor.predict(point_coords=points, point_labels=labels, multimask_output=True)
         masks = masks.astype(bool)
+        scores = np.asarray(scores, dtype=np.float32).reshape(-1)
         if mask_index is not None:
             best_index = int(mask_index)
         elif prefer_smallest:
-            best_index = int(np.argmin(masks.reshape(masks.shape[0], -1).sum(axis=1)))
+            areas = masks.reshape(masks.shape[0], -1).sum(axis=1)
+            candidates = np.flatnonzero((scores >= scores.max() * SMALLEST_SCORE_RATIO) & (areas > 0))
+            best_index = int(candidates[np.argmin(areas[candidates])]) if len(candidates) else int(np.argmax(scores))
         else:
             best_index = int(np.argmax(scores))
         self.current_mask = masks[best_index]
