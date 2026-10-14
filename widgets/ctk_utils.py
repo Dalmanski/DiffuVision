@@ -153,6 +153,11 @@ class GradientBtn(ctk.CTkFrame):
         self._text_disabled = _resolve_color(_theme_color('text_color_disabled'))
         self._render()
 
+    def reset_colors(self):
+        self._auto_fg = True
+        self._auto_hover = True
+        self.refresh_theme()
+
     def configure(self, **kwargs):
         button_keys = {'text', 'state', 'command', 'fg_color', 'hover_color', 'text_color', 'font', 'corner_radius', 'border_width', 'border_color', 'anchor'}
         button_kwargs = {key: kwargs.pop(key) for key in tuple(kwargs) if key in button_keys}
