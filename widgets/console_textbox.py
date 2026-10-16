@@ -6,12 +6,16 @@ class ConsoleTextBox(ctk.CTkTextbox):
     def __init__(self, parent, height=260, wrap='word', font=('Consolas', 12), fg_color='#000000', text_color='#D0D0D0', **kwargs):
         super().__init__(parent, height=height, wrap=wrap, font=font, fg_color=fg_color, text_color=text_color, **kwargs)
         self.configure(state='disabled')
+        self._live_line = False
 
     def _render_log(self, text, live):
         try:
             self.configure(state='normal')
             if live:
                 self.delete(self.index('end-1c linestart'), 'end-1c')
+            elif self._live_line:
+                self.insert('end', '\n')
+            self._live_line = live
             self.insert('end', text)
             if not live and not text.endswith('\n'):
                 self.insert('end', '\n')
@@ -36,6 +40,7 @@ class ConsoleTextBox(ctk.CTkTextbox):
             self.configure(state='normal')
             self.delete('1.0', 'end')
             self.configure(state='disabled')
+            self._live_line = False
         except Exception:
             pass
 

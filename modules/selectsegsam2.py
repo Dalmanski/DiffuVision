@@ -68,10 +68,10 @@ class SAM2Segmenter:
         if self.device != "cuda":
             raise RuntimeError("CUDA GPU is required for SAM 2.")
         repo_dir = self.find_repo_dir()
-        print(f"Loading SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME})...")
+        print(f"[SAM2] Loading SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME})...")
         self.model = build_sam2(str(repo_dir / SAM2_CONFIG_PATH), str(repo_dir / SAM2_CKPT_PATH), device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print(f"SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
+        print(f"[SAM2] SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
 
     def load_image(self, image):
         if isinstance(image, str):

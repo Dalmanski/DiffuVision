@@ -37,15 +37,15 @@ def _print_token_notice():
         return
     _token_notice_shown = True
     print()
-    print('Hugging Face token is expired or invalid. Continuing without it...')
-    print('The models used by this app are public, so a token is not required.')
-    print('To remove the old token, run:')
-    print('  hf auth logout   (or: huggingface-cli logout)')
-    print('To renew the token instead:')
-    print('  1. Open https://huggingface.co/settings/tokens')
-    print('  2. Create a new token with "Read" access and copy it')
-    print('  3. Run: hf auth login   (or: huggingface-cli login)')
-    print('  4. Paste the token and press Enter')
+    print('[HF] Hugging Face token is expired or invalid. Continuing without it...')
+    print('[HF] The models used by this app are public, so a token is not required.')
+    print('[HF] To remove the old token, run:')
+    print('[HF]   hf auth logout   (or: huggingface-cli logout)')
+    print('[HF] To renew the token instead:')
+    print('[HF]   1. Open https://huggingface.co/settings/tokens')
+    print('[HF]   2. Create a new token with "Read" access and copy it')
+    print('[HF]   3. Run: hf auth login   (or: huggingface-cli login)')
+    print('[HF]   4. Paste the token and press Enter')
     print()
 
 

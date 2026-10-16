@@ -20,6 +20,7 @@ model/weights/
 modules/sam2_repo/
 modules/weights/
 modules/pose_landmarker_full.task
+modules/lbpcascade_animeface.xml
 
 # OS/editor noise
 .vscode/

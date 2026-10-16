@@ -121,7 +121,7 @@ class CropImageMixin:
     def mark_crop_changed(self, message):
         self.reset_preview_state()
         self.refresh_crop_ui(allow_reload=True)
-        print(message)
+        print(f'[CROP] {message}')
         self.show_input()
         self.show_output()
 

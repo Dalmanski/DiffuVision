@@ -84,12 +84,12 @@ def _load_pose():
     return None, None, message
 
 MP, POSE, POSE_ERROR = _load_pose()
-print(f'Pose landmarker: {"ready" if POSE else "unavailable - " + POSE_ERROR}')
+print(f'[POSE] Pose landmarker: {"ready" if POSE else "unavailable - " + POSE_ERROR}')
 CLASS_PROMPTS = [list(dict.fromkeys(template.format(s=subject) for template in templates for subject in CLASS_SUBJECTS)) for templates in CLASS_TEMPLATES]
 VIEW_PROMPTS = [[template.format(label=label, phrase=phrase, s=subject) for template in VIEW_TEMPLATES for subject in VIEW_SUBJECTS] for label, phrase in zip(VIEW_LABELS, VIEW_PHRASES)]
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f'Using device: {device}')
-print('Loading CLIP model...')
+print(f'[DEVICE] Using {device}')
+print('[CLIP] Loading CLIP model...')
 processor = load_hf_model(CLIPProcessor, MODEL_NAME, use_fast=False)
 model = load_hf_model(CLIPModel, MODEL_NAME).to(device)
 model.eval()
@@ -153,7 +153,7 @@ def _picture(image_path, head=False):
     picture = _rgb(image_path)
     crop = _head_crop(picture) if head else None
     if head:
-        print(f'  head crop: {"used" if crop is not None else "not found, using full image"}')
+        print(f'[HEAD] Crop: {"used" if crop is not None else "not found, using full image"}')
     return picture if crop is None else crop
 
 def _predict_scores(image_path, embeddings, head=False):
@@ -169,12 +169,12 @@ def _faces_right(image_path):
 
 def _pose_view(image_path):
     if POSE is None:
-        print(f'  pose: unavailable - {POSE_ERROR}')
+        print(f'[POSE] unavailable - {POSE_ERROR}')
         return None
     picture = _rgb(image_path)
     points = _landmarks(picture)
     if points is None:
-        print('  pose: no person found')
+        print('[POSE] no person found')
         return None
     width, height = picture.size
     xy = lambda index: np.array([points[index].x * width, points[index].y * height])
@@ -183,7 +183,7 @@ def _pose_view(image_path):
     lower = max(span(23, 24), span(25, 26)) / max(span(11, 12), 1.0)
     lower_visible = min(points[index].visibility or 0 for index in (23, 24, 25, 26)) > 0.5
     ear = max(points[7], points[8], key=lambda point: point.visibility or 0)
-    print(f'  pose: shoulder/head ratio {ratio:.2f}, lower/shoulder ratio {lower:.2f}, nose {(points[0].visibility or 0):.2f}, ears {(points[7].visibility or 0):.2f}/{(points[8].visibility or 0):.2f}')
+    print(f'[POSE] shoulder/head ratio {ratio:.2f}, lower/shoulder ratio {lower:.2f}, nose {(points[0].visibility or 0):.2f}, ears {(points[7].visibility or 0):.2f}/{(points[8].visibility or 0):.2f}')
     return ratio < SIDE_RATIO, points[0].x > ear.x, (lower > LOWER_RATIO if lower_visible else None)
 
 def _print_scores(title, image_path, labels, probabilities):
@@ -225,7 +225,7 @@ def predict_view(image_path):
     adjusted = adjusted / adjusted.sum()
     index = int(adjusted.argmax())
     name = VIEW_GROUPS[index]
-    print(f'  final group: {name}')
+    print(f'[GROUP] Final group: {name}')
     if name == SIDE:
         name = RSview if (pose[1] if pose else _faces_right(image_path)) else LSview
     return name, float(adjusted[index]) * 100

@@ -28,19 +28,19 @@ class SegmentImageMixin:
             return
         if self.manual_mode:
             self.disable_manual_mode()
-            print('SAM2 point selection disabled')
+            print('[SAM2] SAM2 point selection disabled')
             return
         try:
             self.sync_config()
         except Exception as e:
-            print(f'Configuration Error: {e}')
+            print(f'[CONFIG ERROR] {e}')
             return
         self.manual_mode = True
         self.manual_loading = True
         self.manual_btn.configure(state='disabled')
         self.clear_seg_btn.configure(state='normal')
         self.update_crop_state()
-        print('Loading SAM2 point selection...')
+        print('[SAM2] Loading SAM2 point selection...')
         threading.Thread(target=self.load_sam_worker, daemon=True).start()
 
     def finish_manual_load(self):
@@ -59,11 +59,11 @@ class SegmentImageMixin:
             self.manual_segmenter.load_image(image)
             self.manual_image = self.input_image.copy() if self.input_image is not None else self.original_image.copy()
             self.manual_base_mask = self.mask_image.copy() if self.has_valid_mask(self.mask_image) else None
-            print('SAM2 point selection ready • click the image to append segments')
+            print('[SAM2] SAM2 point selection ready • click the image to append segments')
         except Exception as e:
             self.manual_mode = False
-            print(f'SAM2 point selection error: {e}')
-            self.after(0, lambda err=str(e): print(f'SAM2 Error: {err}'))
+            print(f'[SAM2 ERROR] {e}')
+            self.after(0, lambda err=str(e): print(f'[SAM2 ERROR] {err}'))
         finally:
             self.finish_manual_load()
 
@@ -141,8 +141,8 @@ class SegmentImageMixin:
             self.after(0, self.show_input)
             self.after(0, self.show_output)
         except Exception as e:
-            print(f'SAM2 selection error: {e}')
-            self.after(0, lambda err=str(e): print(f'SAM2 Selection Error: {err}'))
+            print(f'[SAM2 ERROR] {e}')
+            self.after(0, lambda err=str(e): print(f'[SAM2 ERROR] {err}'))
         finally:
             self.finish_manual_load()
 
@@ -153,7 +153,7 @@ class SegmentImageMixin:
             self.manual_segmenter.clear_all_segments()
         self.reset_preview_state()
         self.generate_btn.configure(state='disabled')
-        print('All manually appended segments removed')
+        print('[SEGMENT] All manually appended segments removed')
         self.show_input()
         self.show_output()
         self.update_gen_state()
@@ -196,17 +196,17 @@ class SegmentImageMixin:
         self.generate_btn.configure(state='disabled')
         self.after(0, self.show_output)
         try:
-            print('Building mask...')
+            print('[MASK] Building mask...')
             mask = self.make_mask(image)
             self.mask_image = mask.copy()
             self.mask_src = 'auto'
             self.after(0, self.show_input)
             self.after(0, self.show_output)
-            print('Mask ready')
+            print('[MASK] Mask ready')
         except Exception as e:
             self.mask_image = None
-            print(f'Mask error: {e}')
-            self.after(0, lambda err=str(e): print(f'Mask Error: {err}'))
+            print(f'[MASK ERROR] {e}')
+            self.after(0, lambda err=str(e): print(f'[MASK ERROR] {err}'))
         finally:
             self.seg_loading = False
             self.after(0, lambda: self.reload_btn.configure(state='normal' if self.original_image is not None and not self.processing else 'disabled'))
@@ -221,7 +221,7 @@ class SegmentImageMixin:
         try:
             self.sync_config()
         except Exception as e:
-            print(f'Configuration Error: {e}')
+            print(f'[CONFIG ERROR] {e}')
             return
         self.reset_preview_state()
         self.generate_btn.configure(state='disabled')
@@ -229,7 +229,7 @@ class SegmentImageMixin:
         self.update_manual_btns()
         self.show_input()
         self.show_output()
-        print('Reloading mask...')
+        print('[MASK] Reloading mask...')
         threading.Thread(target=self.reload_mask_worker, daemon=True).start()
 
     def reload_mask_worker(self):
@@ -238,8 +238,8 @@ class SegmentImageMixin:
             self.after(0, self.show_input)
             self.regenerate_mask(processed.copy())
         except Exception as e:
-            print(f'RELOAD MASK error: {e}')
-            self.after(0, lambda err=str(e): print(f'Mask Reload Error: {err}'))
+            print(f'[MASK ERROR] {e}')
+            self.after(0, lambda err=str(e): print(f'[MASK ERROR] {err}'))
             self.after(0, lambda: self.reload_btn.configure(state='normal' if self.original_image is not None else 'disabled'))
 
     def prep_input(self, image):
@@ -248,7 +248,7 @@ class SegmentImageMixin:
         cropped = self.get_cropped_image(base)
         processed = self.prepare_sd_image(cropped)
         self.sd_input_image = processed.copy()
-        print(f'Input ready {processed.width}x{processed.height}')
+        print(f'[INPUT] Input ready {processed.width}x{processed.height}')
         return processed
 
     def make_mask(self, image, config=None):
@@ -262,7 +262,7 @@ class SegmentImageMixin:
             raise ValueError('mask_blur cannot be negative.')
         self.load_segmentation()
         try:
-            print('Segmenting...')
+            print('[SEGMENT] Segmenting...')
             result = self.segmentation.segment(image, seg_pos_prompt, seg_neg_prompt, thickness=0)
             masks = [np.asarray(mask, dtype=bool) for mask in result.masks if np.asarray(mask).any()]
             if not masks:
@@ -275,7 +275,7 @@ class SegmentImageMixin:
                 combined |= mask
             raw_mask = Image.fromarray(combined.astype(np.uint8) * 255, 'L')
             mask = self.adjust_mask(raw_mask, thickness, blur)
-            print(f'Mask ready • {len(masks)} mask(s)')
+            print(f'[MASK] Mask ready • {len(masks)} mask(s)')
             return mask.copy()
         finally:
             self.unload_segmentation()

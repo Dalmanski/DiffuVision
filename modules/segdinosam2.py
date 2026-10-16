@@ -118,9 +118,9 @@ class RembgSegmenter:
         if self.session is not None:
             return
         print()
-        print("Loading Rembg...")
+        print("[REMBG] Loading Rembg...")
         self.session = new_session(REMBG_MODEL_ID, providers=REMBG_PROVIDERS)
-        print("Rembg loaded.")
+        print("[REMBG] Rembg loaded.")
 
     def unload(self):
         self.session = None
@@ -187,26 +187,26 @@ class HFModel:
         if self.model is not None:
             return
         print()
-        print(f"Loading {self.title}...")
+        print(f"[MODEL] Loading {self.title}...")
         self.processor = load_hf_model(self.processor_loader, self.model_id, use_fast=False)
         if self.processor_message:
-            print(self.processor_message)
+            print(f"[MODEL] {self.processor_message}")
         if self.preferred_device != "cuda":
             self._load_model("cpu")
-            print(f"  > {self.short_name} CPU ready.")
+            print(f"[MODEL] {self.short_name} CPU ready.")
             return
         try:
-            print(f"  > Loading {self.short_name} on GPU...")
+            print(f"[MODEL] Loading {self.short_name} on GPU...")
             self._load_model("cuda")
-            print(f"  > {self.short_name} GPU ready.")
+            print(f"[MODEL] {self.short_name} GPU ready.")
             self._after_gpu_load()
         except Exception as e:
-            print(f"  > {self.short_name} GPU load failed.")
-            print(f"  > {e}")
+            print(f"[MODEL ERROR] {self.short_name} GPU load failed.")
+            print(f"[MODEL ERROR] {e}")
             self.unload()
             self.processor = load_hf_model(self.processor_loader, self.model_id, use_fast=False)
             self._load_model("cpu")
-            print(f"  > {self.short_name} CPU fallback ready.")
+            print(f"[MODEL] {self.short_name} CPU fallback ready.")
 
     def unload(self):
         if self.model is not None:
@@ -241,8 +241,8 @@ class HFModel:
         except RuntimeError as error:
             if not _is_gpu_problem(error, self.runtime_device):
                 raise
-            print(f"  {self.short_name} GPU issue detected.")
-            print("  Switching to CPU.")
+            print(f"[GPU] {self.short_name} GPU issue detected.")
+            print("[GPU] Switching to CPU.")
             self.switch_to_cpu()
             inputs = _to_device(make_inputs(), "cpu")
             with torch.inference_mode():
@@ -269,9 +269,9 @@ class GroundingDINO(HFModel):
             return
         try:
             free_bytes, total_bytes = torch.cuda.mem_get_info()
-            print(f"  CUDA Used: {(total_bytes - free_bytes) / 1024**2:.0f} MB")
-            print(f"  CUDA Free: {free_bytes / 1024**2:.0f} MB")
-            print(f"  CUDA Total: {total_bytes / 1024**2:.0f} MB")
+            print(f"[CUDA] Used: {(total_bytes - free_bytes) / 1024**2:.0f} MB")
+            print(f"[CUDA] Free: {free_bytes / 1024**2:.0f} MB")
+            print(f"[CUDA] Total: {total_bytes / 1024**2:.0f} MB")
         except Exception:
             pass
 
@@ -287,7 +287,7 @@ class GroundingDINO(HFModel):
         for category in categories:
             print()
             print("-" * 70)
-            print(f"{mode.upper()} QUERY: {category}")
+            print(f"[QUERY] {mode.upper()}: {category}")
             inputs, outputs = self.run(lambda: self.processor(images=image, text=[[category]], return_tensors="pt"))
             try:
                 results = self.processor.post_process_grounded_object_detection(outputs, inputs["input_ids"], threshold=box_threshold, text_threshold=text_threshold, target_sizes=[(image.height, image.width)])
@@ -311,14 +311,14 @@ class GroundingDINO(HFModel):
                     continue
                 area_ratio = width * height / image_area
                 if area_ratio > max_area_ratio:
-                    print(f"  Rejected {category}: area={area_ratio:.1%}")
+                    print(f"[REJECT] {category}: area={area_ratio:.1%}")
                     continue
                 if area_ratio < MIN_BOX_AREA_RATIO:
                     continue
                 if mode == "negative":
                     person_like = height / image.height >= SUS_NEG_HEIGHT and width / image.width >= SUS_NEG_WIDTH
                     if person_like and area_ratio >= SUS_NEG_AREA:
-                        print(f"  Rejected {category}: suspicious person-sized negative box={box.astype(int)} area={area_ratio:.1%}")
+                        print(f"[REJECT] {category}: suspicious person-sized negative box={box.astype(int)} area={area_ratio:.1%}")
                         continue
                 local.append((np.array([x1, y1, x2, y2], dtype=np.float32), float(score)))
             local.sort(key=lambda item: item[1], reverse=True)
@@ -326,7 +326,7 @@ class GroundingDINO(HFModel):
                 all_boxes.append(box)
                 all_labels.append(category)
                 all_scores.append(score)
-                print(f"  Candidate: {category} score={score:.3f} box={box.astype(int)}")
+                print(f"[CANDIDATE] {category} score={score:.3f} box={box.astype(int)}")
             del inputs, outputs, results, result
             self.release_step_memory()
         boxes, labels, scores = self.dedupe_boxes(all_boxes, all_labels, all_scores)
@@ -349,7 +349,7 @@ class GroundingDINO(HFModel):
                 iou = self.box_iou(box, old_box)
                 if iou >= DUP_IOU_THRESHOLD:
                     duplicate = True
-                    print(f"  Duplicate removed: {label} IoU={iou:.2f}")
+                    print(f"[FILTER] Duplicate removed: {label} IoU={iou:.2f}")
                     break
             if not duplicate:
                 kept_boxes.append(box)
@@ -369,7 +369,7 @@ class GroundingDINO(HFModel):
                 if self.box_containment(boxes[j], boxes[i]) >= NESTED_THRESHOLD and areas[j] > areas[i]:
                     loser = i if scores[i] <= scores[j] else j
                     keep[loser] = False
-                    print(f"  Nested box removed: {labels[loser]} score={scores[loser]:.3f}")
+                    print(f"[FILTER] Nested box removed: {labels[loser]} score={scores[loser]:.3f}")
         kept = [index for index in range(len(boxes)) if keep[index]]
         return [boxes[i] for i in kept], [labels[i] for i in kept], [scores[i] for i in kept]
 
@@ -413,9 +413,9 @@ class SemanticParser(HFModel):
             if np.any(mask):
                 masks.append(mask.astype(bool))
                 labels.append(category)
-                print(f"  {self.short_name}: {category} -> {normalized} pixels={int(np.count_nonzero(mask))}")
+                print(f"[MASK] {self.short_name}: {category} -> {normalized} pixels={int(np.count_nonzero(mask))}")
             else:
-                print(f"  {self.short_name}: {category} produced an empty mask.")
+                print(f"[MASK] {self.short_name}: {category} produced an empty mask.")
         del inputs, outputs, logits, prediction
         self.release_step_memory()
         return masks, labels
@@ -448,10 +448,10 @@ class SAM2:
         config = os.path.join(self.repo_dir, "sam2", "configs", "sam2.1", SAM2_CONFIG_NAME)
         if not os.path.isfile(config):
             raise FileNotFoundError("SAM 2 config not found:\n\n" + config)
-        print(f"Loading SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME})...")
+        print(f"[SAM2] Loading SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME})...")
         self.model = build_sam2(config, checkpoint, device=self.device)
         self.predictor = SAM2ImagePredictor(self.model)
-        print(f"SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
+        print(f"[SAM2] SAM 2 ({SAM2_CKPT_NAME}, {SAM2_CONFIG_NAME}) loaded.")
 
     def unload(self):
         self.predictor = None
@@ -626,7 +626,7 @@ class SegDinoSAM2:
                 continue
             overlap_ratio = np.count_nonzero(mask & positive_union) / max(positive_union_area, 1)
             if positive_union_area > 0 and overlap_ratio >= NEG_OVERLAP_MAX and mask_area > positive_union_area:
-                print(f"  Negative mask rejected: {label} positive-overlap={overlap_ratio:.1%} mask-area={mask_area} positive-area={positive_union_area}")
+                print(f"[REJECT] Negative mask rejected: {label} positive-overlap={overlap_ratio:.1%} mask-area={mask_area} positive-area={positive_union_area}")
                 continue
             negative_masks.append(mask)
             neg_mask_labels.append(label)

@@ -1,4 +1,4 @@
-import os, sys, json, time, threading
+﻿import os, sys, json, time, threading
 from pathlib import Path
 from tkinter import filedialog
 import customtkinter as ctk
@@ -430,13 +430,13 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             payload = open_payload(CHILI_BIN)
             self.generate(config_override=dict(payload))
         except Exception:
-            print('Nyaaahhh~ I don\'t want the chili! It\'s too spicy for me ⸜(｡˃ ᵕ ˂ )⸝♡')
+            print('[STOP] Nyaaahhh~ I don\'t want the chili! It\'s too spicy for me ⸜(｡˃ ᵕ ˂ )⸝♡')
 
     def stop_generation(self):
         if not self.processing:
             return
         self.stop_requested.set()
-        print('Stopping...')
+        print('[STOP] Stopping...')
         self.generate_btn.configure(state='disabled', text='STOPPING...')
 
     def check_stop(self):
@@ -470,7 +470,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.selected_loras = set(self.lora_paths)
         self.selected_embeddings = set(self.embedding_paths)
         if not MODEL_OPTIONS:
-            print(f'Missing inpainting models: no .safetensors files found in {MODEL_DIR} or configured SD_INPAINT_MODEL paths.')
+            print(f'[MODEL ERROR] Missing inpainting models: no .safetensors files found in {MODEL_DIR} or configured SD_INPAINT_MODEL paths.')
         self.autosave.set(autosave)
 
     def write_env(self):
@@ -510,7 +510,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             return
         for key, value in data.items():
             if key.startswith('c') and (key == 'c' or key[1:].isdigit()):
-                print(f' ➤ {value}')
+                print(f'➤ {value}')
 
     def config_changed(self, choice):
         if self.input_is_busy(include_manual=False):
@@ -523,7 +523,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.print_comments()
             self.write_env()
         except Exception as e:
-            print(f'Configuration Error: {e}')
+            print(f'[CONFIG ERROR] {e}')
 
     def toggle_autosave(self):
         if self.processing:
@@ -551,7 +551,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.json.delete('1.0', 'end')
         self.json.insert('1.0', json.dumps(self.config, indent=4, ensure_ascii=False))
         self.prompt.set(str(self.config.get('positive_prompt', '')))
-        print(f'Loaded {Path(self.cfg_name).name}')
+        print(f'[CONFIG] Loaded {Path(self.cfg_name).name}')
 
     def prompt_changed(self, event=None):
         text = self.json.get('1.0', 'end').strip()
@@ -576,7 +576,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         try:
             self.config = self.config_manager.sync_config(self.cfg_path, text, False)
         except Exception as e:
-            print(f'JSON error: {e}')
+            print(f'[JSON ERROR] {e}')
             return
         if self.save_job:
             try:
@@ -594,9 +594,9 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             text = self.json.get('1.0', 'end').strip()
             self.config = self.config_manager.save_json(self.cfg_path, text, self.autosave.get())
             self.write_env()
-            print('Config saved')
+            print('[CONFIG] Saved')
         except Exception as e:
-            print(f'JSON error: {e}')
+            print(f'[JSON ERROR] {e}')
 
     def sync_config(self):
         text = self.json.get('1.0', 'end').strip()
@@ -613,7 +613,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def restore_pipe(self):
         if self.pipe is None:
             return
-        print(f'Model → {DEVICE.upper()}')
+        print(f'[DEVICE] Model → {DEVICE.upper()}')
         if DEVICE == 'cuda' and self.dtype == torch.float16:
             self.pipe.to(DEVICE, dtype=torch.float16)
         else:
@@ -641,7 +641,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 raise FileNotFoundError(f'Model "{model_name}" was not found. Add a .safetensors file to the model folder or list it in "SD_INPAINT_MODEL" in .env.')
             self.unload_pipe()
             dtype = torch.float16 if DEVICE == 'cuda' else torch.float32
-            print(f'Loading {model_name}')
+            print(f'[MODEL] Loading {model_name}')
             pipe = StableDiffusionInpaintPipeline.from_single_file(model_id, torch_dtype=dtype, safety_checker=None, local_files_only=True)
             lora_paths = self.config_manager.discover_loras()
             embedding_paths = self.config_manager.discover_embeddings()
@@ -651,16 +651,16 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 try:
                     pipe.load_lora_weights(lora_path, adapter_name=lora_name)
                     loaded_loras.append((lora_path, lora_name))
-                    print(f'LoRA loaded: {lora_path}')
+                    print(f'[LORA] Loaded: {lora_path}')
                 except Exception as error:
-                    print(f'LoRA not loaded: {lora_path} ({error})')
+                    print(f'[LORA] Not loaded: {lora_path} ({error})')
             self.activate_loras(pipe, loaded_loras)
             for embedding_path, token in embedding_paths.items():
                 try:
                     pipe.load_textual_inversion(embedding_path, token=token)
-                    print(f'Embedding loaded: {embedding_path}')
+                    print(f'[EMBEDDING] Loaded: {embedding_path}')
                 except Exception as error:
-                    print(f'Embedding not loaded: {embedding_path} ({error})')
+                    print(f'[EMBEDDING] Not loaded: {embedding_path} ({error})')
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(DEVICE)
             pipe.set_progress_bar_config(disable=True)
@@ -680,7 +680,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.cleanup_gpu()
             self.models_ready = True
             self.model_loading = False
-            print(f'{model_name} ready • {DEVICE.upper()}')
+            print(f'[MODEL] {model_name} ready • {DEVICE.upper()}')
             self.schedule(self.refresh_lora_menu)
             self.schedule(self.model_menu.configure, state='normal')
             self.schedule(self.update_gen_state)
@@ -688,7 +688,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.models_ready = False
             self.model_loading = False
             self.seg_loading = False
-            print(f'Error: {e}')
+            print(f'[MODEL ERROR] {e}')
             self.cleanup_gpu()
             self.schedule(self.model_menu.configure, state='normal')
             self.schedule(print, f'Model Error: {e}')
@@ -706,12 +706,12 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
     def prep_image(self, path):
         image, had_alpha = flatten_alpha(ImageOps.exif_transpose(load_image(path)))
         if had_alpha:
-            print('Alpha background filled')
+            print('[PREPROCESS] Alpha background filled')
         return image
 
     def classify_upload(self, image):
         try:
-            print('Classifying image...')
+            print('[CLASSIFY] Classifying image...')
             classification = img_classify.classify_image(image)
             best_class = self.normalize_choice(classification.get('best_class', ''), img_classify.image)
             self.schedule(self.set_detected, self.img_cls, self.image_class_menu, best_class)
@@ -724,15 +724,15 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.schedule(self.set_detected, self.age, self.age_menu, detected_age)
             detected_view = self.normalize_choice(view_result[0], img_classify.view)
             self.schedule(self.set_detected, self.view, self.view_menu, detected_view)
-            print(f'Class: {best_class.upper()}, Gender: {detected_gender.upper()}, Age: {detected_age.upper()}, View: {detected_view.upper()}')
-            print('Classification finished')
+            print(f'[CLASSIFY] Class: {best_class.upper()}, Gender: {detected_gender.upper()}, Age: {detected_age.upper()}, View: {detected_view.upper()}')
+            print('[CLASSIFY] Classification finished')
             self.schedule(self.set_widget_state, 'normal', *self.meta_menus())
         except Exception as e:
             self.schedule(print, f'Image Classification Error: {e}')
             self.schedule(self.set_widget_state, 'normal', *self.meta_menus())
             for variable in self.meta_vars():
                 self.schedule(variable.set, 'NONE')
-            print(f'Classify error: {e}')
+            print(f'[CLASSIFY ERROR] {e}')
         finally:
             self.class_loading = False
             self.schedule(self.update_gen_state)
@@ -761,10 +761,10 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             self.set_widget_state('normal', self.reload_btn, self.manual_btn, self.clear_seg_btn, self.reset_btn)
             self.show_input()
             self.show_output()
-            print(f'Loaded {self.img_name}')
+            print(f'[IMAGE] Loaded {self.img_name}')
             threading.Thread(target=self.classify_upload, args=(image.copy(),), daemon=True).start()
         except Exception as e:
-            print(f'Image Error: {e}')
+            print(f'[IMAGE ERROR] {e}')
 
     def build_prompts(self, config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender):
         positive_prompt = str(config.get('positive_prompt', '')).strip()
@@ -793,8 +793,8 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
 
     def log_actual_prompts(self):
         positive_prompt, negative_prompt = self.build_prompts(self.config, self.img_cls.get(), self.gender.get(), self.age.get(), self.view.get(), True)
-        print(f'Positive Prompt: {positive_prompt}')
-        print(f'Negative Prompt: {negative_prompt}')
+        print(f'[PROMPT] Positive: {positive_prompt}')
+        print(f'[PROMPT] Negative: {negative_prompt}')
 
     def prompt_sel_changed(self, choice):
         if self.processing or not self.apply_meta.get():
@@ -809,24 +809,24 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if self.processing:
             return
         if self.model_loading or self.seg_loading:
-            print('Models loading')
+            print('[BUSY] Models loading')
             return
         if self.class_loading:
-            print('Classification running')
+            print('[BUSY] Classification running')
             return
         if not self.models_ready:
-            print('Model not ready')
+            print('[MODEL] Model not ready')
             return
         if self.manual_mode:
             self.disable_manual_mode()
         if self.original_image is None:
-            print('No image')
+            print('[IMAGE] No image')
             return
         if config_override is None:
             try:
                 self.sync_config()
             except Exception as e:
-                print(f'Configuration Error: {e}')
+                print(f'[CONFIG ERROR] {e}')
                 return
         self.gen_count += 1
         generation_id = self.gen_count
@@ -835,11 +835,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         if mask is None:
             self.mask_src = None
         elif self.mask_src == 'manual':
-            print('Manual segment available • skipping auto segment')
+            print('[SEGMENT] Manual segment available • skipping auto segment')
         elif self.mask_src == 'auto':
-            print('Auto segment available • reusing existing mask')
+            print('[SEGMENT] Auto segment available • reusing existing mask')
         else:
-            print('Existing mask available • skipping auto segment')
+            print('[SEGMENT] Existing mask available • skipping auto segment')
         original_image = self.original_image.copy()
         crop_box = self.crop_or_full()
         config = dict(config_override) if config_override is not None else dict(self.config)
@@ -858,7 +858,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
         self.set_widget_state('disabled', self.generate_btn, self.upload_btn, self.reload_btn, self.manual_btn, self.save_btn, self.save_mode_menu, self.model_menu, *self.meta_menus(), self.ratio_menu)
         self.start_time = time.time()
         self.show_output()
-        print(f'Generation {generation_id} start')
+        print(f'[GENERATION] Generation {generation_id} start')
         self.after(0, self.update_gen_state)
         threading.Thread(target=self.worker, args=(source, mask, original_image, crop_box, config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender, full_image_output, esrgan_output, autosave, generation_id), daemon=True).start()
 
@@ -887,14 +887,14 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             positive_prompt, negative_prompt = self.build_prompts(config, selected_class, selected_gender, selected_age, selected_view, apply_class_gender)
             negative_prompt = self.apply_embeddings(negative_prompt)
             if source is None:
-                print('Preprocessing...')
+                print('[PREPROCESS] Preprocessing...')
                 source = self.prep_input(original_image)
             else:
                 source = source.copy()
             if not self.has_valid_mask(mask):
                 self.seg_loading = True
                 self.after(0, self.update_crop_state)
-                print('No input preview segment found • running auto segment...')
+                print('[SEGMENT] No input preview segment found • running auto segment...')
                 mask = self.make_mask(source, config)
                 self.mask_image = mask.copy()
                 self.mask_src = 'auto'
@@ -902,7 +902,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 self.seg_loading = False
                 self.after(0, self.update_crop_state)
             elif mask.size != source.size:
-                print(f'Reusing {self.mask_src or "existing"} segment • resizing mask to processed input')
+                print(f'[SEGMENT] Reusing {self.mask_src or "existing"} segment • resizing mask to processed input')
                 mask = mask.resize(source.size, Image.Resampling.NEAREST)
                 self.mask_image = mask.copy()
             if np.asarray(mask, dtype=np.uint8).max() < 10:
@@ -917,7 +917,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
             generator = torch.Generator(device=DEVICE).manual_seed(seed)
             if self.pipe is None:
                 raise RuntimeError('Selected diffusion model is not loaded.')
-            print(f'Seed {seed}')
+            print(f'[SEED] {seed}')
             self.restore_pipe()
             scheduler_config = dict(self.pipe.scheduler.config)
 
@@ -933,7 +933,7 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                 self.console.log(f'[{bar}] {percent:3d}% | {step}/{steps} | [{self.time_text(elapsed)}<{self.time_text(remaining)}]', live=True)
                 return callback_kwargs
 
-            print(f'Generating {w}x{h}...')
+            print(f'[GENERATION] Generating {w}x{h}...')
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(scheduler_config)
             with torch.inference_mode():
                 result = self.pipe(prompt=positive_prompt, negative_prompt=negative_prompt, image=init, mask_image=mask, num_inference_steps=steps, guidance_scale=cfg, strength=strength, generator=generator, width=w, height=h, callback_on_step_end=progress, guidance_rescale=cfg_rescale)
@@ -960,11 +960,11 @@ class App(GifAnimationMixin, SegmentImageMixin, CropImageMixin, SDIdealImageMixi
                     self.save()
 
             self.after(0, finish_generation)
-            print(f'\nGeneration {generation_id} done • {self.time_text(elapsed)}')
+            print(f'\n[GENERATION] Generation {generation_id} done • {self.time_text(elapsed)}')
         except GenerationStopped:
-            print(f'Generation {generation_id} stopped')
+            print(f'[GENERATION] Generation {generation_id} stopped')
         except Exception as e:
-            print(f'Generation {generation_id} error: {e}')
+            print(f'[GENERATION ERROR] Generation {generation_id}: {e}')
             self.schedule(print, f'Generation Error: {e}')
         finally:
             self.processing = False
