@@ -6,10 +6,10 @@ from utils.dupfilename import prompt_save_path
 from utils.model_utils import clear_gpu
 import modules.img_classify as img_classify
 
-SAVE_MODES = ['Output Image', 'Compare Image', 'Fade Vid', 'Tearing Vid', 'Eye Vid', 'Crop Vid', 'Alive Vid']
+SAVE_MODES = ['Output Image', 'Compare Image', 'Fade Vid', 'Tearing Vid', 'Eye Vid', 'Crop Vid', 'Down Vid', 'Alive Vid']
 ANIME_CASCADE_URL = 'https://raw.githubusercontent.com/nagadomi/lbpcascade_animeface/master/lbpcascade_animeface.xml'
 ANIME_CASCADE = Path(__file__).resolve().parent / 'lbpcascade_animeface.xml'
-VID_TAGS = {'Fade Vid': 'FD', 'Tearing Vid': 'TR', 'Eye Vid': 'EY', 'Crop Vid': 'CR'}
+VID_TAGS = {'Fade Vid': 'FD', 'Tearing Vid': 'TR', 'Eye Vid': 'EY', 'Crop Vid': 'CR', 'Down Vid': 'DN'}
 
 _DEPTHFLOW_SCENE = None
 
@@ -34,14 +34,12 @@ def depthflow_scene():
                 except OSError:
                     shutil.copy2(imageio_ffmpeg.get_ffmpeg_exe(), exe)
             os.environ['PATH'] = str(bin_dir) + os.pathsep + os.environ['PATH']
-
         @define
         class AliveScene(DepthScene):
             subject: float = 0.5
             phases: list = Factory(lambda: [random.uniform(0, 2 * math.pi) for _ in range(12)])
             video: object = None
             current: list = Factory(lambda: [None, None, 0])
-
             def follow_video(self):
                 frame, depth, index = self.current
                 while index < self.frame:
@@ -56,10 +54,8 @@ def depthflow_scene():
                         self.image.from_numpy(frame)
                         self.depth.from_numpy(depth)
                 self.current[:] = [frame, depth, index]
-
             def wave(self, first, *harmonics):
                 return sum(a * math.sin(k * self.cycle + self.phases[(first + i) % len(self.phases)]) for i, (k, a) in enumerate(harmonics))
-
             def update(self):
                 if self.video is not None:
                     self.follow_video()
@@ -132,7 +128,8 @@ class SaveOutputMixin:
         orig = (self.original_image if self.full_out.get() else (self.sd_input_image or self.original_image)).convert('RGB')
         print(f'[RENDER] Rendering {name}...')
         trans = {'Fade Vid': lambda parts: (0.5, Image.blend, Image.blend), 'Tearing Vid': lambda parts: (0.8, self.claw_trans(size), self.claw_trans(size)), 'Eye Vid': lambda parts: (1.8, *[self.blink_trans(size)] * 2),
-                 'Crop Vid': lambda parts: (1.5, *[self.crop_trans(size, (self.body_point(parts, 0.75) or (0, size[1] / 2))[1])] * 2)}[name]
+                 'Crop Vid': lambda parts: (1.5, *[self.crop_trans(size, (self.body_point(parts, 0.75) or (0, size[1] / 2))[1])] * 2),
+                 'Down Vid': None}[name]
         args = (path, name, orig.resize(size, Image.Resampling.LANCZOS), out.resize(size, Image.Resampling.LANCZOS), trans)
         threading.Thread(target=self.write_vid, args=args, daemon=True).start()
 
@@ -231,6 +228,20 @@ class SaveOutputMixin:
         return blink
 
     @staticmethod
+    def reveal_trans(size):
+        w, h = size
+        rng = np.random.default_rng()
+        xs = np.arange(w)
+        noise = lambda n, amp: np.interp(xs, np.linspace(0, w - 1, n), rng.uniform(-amp, amp, n)).astype(np.float32)
+        edge, lead = noise(6, 0.08 * h) + noise(25, 0.03 * h) + noise(120, 0.008 * h), noise(5, 0.06 * h)
+        y = np.arange(h, dtype=np.float32)[:, None]
+        feather = max(h / 400, 1)
+        def reveal(a, b, front, wobble=0):
+            alpha = np.clip((front + edge + lead * wobble - y) / feather + 0.5, 0, 1)[..., None]
+            return Image.fromarray((np.asarray(b) * alpha + np.asarray(a) * (1 - alpha)).astype(np.uint8))
+        return reveal
+
+    @staticmethod
     def crop_trans(size, cy):
         w, h = size
         y = np.arange(h)[:, None, None]
@@ -261,8 +272,7 @@ class SaveOutputMixin:
             cx, cy = w / 2 + rng.uniform(-0.08, 0.08) * diag, h / 2 + rng.uniform(-0.08, 0.08) * diag
             u, v = (x - cx) * np.cos(ang) + (y - cy) * np.sin(ang), (y - cy) * np.cos(ang) - (x - cx) * np.sin(ang)
             v -= rng.uniform(-0.3, 0.3) / diag * u * u
-            groups.append((u, v, np.clip(u + diag, 0, 2 * diag).astype(np.int32), [((k - (marks - 1) / 2) * 0.045 * diag, rng.uniform(-0.04, 0.04) * diag, rng.uniform(0.3, 0.55) * diag,
-                           noise(30, 0.35) + noise(140, 0.15), noise(30, 0.35) + noise(140, 0.15), noise(12, 0.006 * diag), 0.15 * g + 0.02 * k) for k in range(marks)]))
+            groups.append((u, v, np.clip(u + diag, 0, 2 * diag).astype(np.int32), [((k - (marks - 1) / 2) * 0.045 * diag, rng.uniform(-0.04, 0.04) * diag, rng.uniform(0.3, 0.55) * diag, noise(30, 0.35) + noise(140, 0.15), noise(30, 0.35) + noise(140, 0.15), noise(12, 0.006 * diag), 0.15 * g + 0.02 * k) for k in range(marks)]))
         ease = lambda t: t * t * (3 - 2 * t)
         def shake(img, t):
             amp, dx, dy, rot = 0, 0, 0, 0
@@ -355,6 +365,190 @@ class SaveOutputMixin:
         xs = np.nonzero(band)[1]
         return (float(xs.mean()) if len(xs) else body.shape[1] / 2), float(y)
 
+    @staticmethod
+    def body_sides(parts, size):
+        w, h = size
+        keys = [k for k in ('torso', 'top', 'dress', 'skirt', 'pants', 'belt', 'legs', 'feet') if k in parts]
+        body = np.logical_or.reduce([parts[k] for k in keys]) if keys else np.zeros((h, w), bool)
+        rows, idx = body.any(axis=1), np.arange(h)
+        if not rows.any():
+            return np.full(h, w * 0.3), np.full(h, w * 0.7)
+        left = np.interp(idx, idx[rows], body.argmax(axis=1)[rows])
+        right = np.interp(idx, idx[rows], (w - 1 - body[:, ::-1].argmax(axis=1))[rows])
+        k = max(int(0.04 * h), 1)
+        blur = lambda a: np.convolve(np.pad(a, k, mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='valid')
+        return blur(left), blur(right)
+
+    @classmethod
+    def head_points(cls, img, parts):
+        if 'face' in parts:
+            ys, xs = np.nonzero(parts['face'])
+            fx0, fx1, fy0, fy1 = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        else:
+            face = cls.find_face(img)
+            if face is None:
+                return None
+            fx0, fy0, fw, fh = map(float, face)
+            fx1, fy1 = fx0 + fw, fy0 + fh
+        fw, fh = fx1 - fx0, fy1 - fy0
+        crown = fy0 - 0.3 * fh
+        hair = [parts[k][:, int(fx0):int(fx1) + 1] for k in ('hair', 'hat') if k in parts]
+        if hair:
+            rows = np.nonzero(np.logical_or.reduce(hair).any(axis=1))[0]
+            rows = rows[rows < fy0]
+            if len(rows):
+                crown = float(rows.min())
+        y = crown + 0.5 * (fy0 - crown) + 0.1 * fh
+        return np.array([fx0 + 0.22 * fw, y]), np.array([fx1 - 0.22 * fw, y]), fw
+
+    @staticmethod
+    def draw_hands(img, hands, depth=False):
+        frame = np.asarray(img, dtype=np.float32).copy()
+        h, w = frame.shape[:2]
+        for x, y, r, lift, *soft in hands:
+            if not soft or not any(soft[0]):
+                continue
+            (press, drag_x, drag_y), reach = soft[0], 4 * r
+            x0, x1, y0, y1 = int(max(x - reach, 0)), int(min(x + reach, w)), int(max(y - reach, 0)), int(min(y + reach, h))
+            if x0 >= x1 or y0 >= y1:
+                continue
+            yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32) + 0.5
+            dx, dy = xx - x, yy - y
+            d = np.hypot(dx, dy) + 1e-3
+            pull = np.exp(-(d / (2.2 * r)) ** 2) * np.clip(1 - (d / reach) ** 2, 0, 1)
+            dent = press * np.exp(-(d / (1.5 * r)) ** 2)
+            sink = 0.06 * r * dent * np.clip(d / r, 0, 1)
+            frame[y0:y1, x0:x1] = cv2.remap(frame, xx - 0.5 - drag_x * pull + dx / d * sink, yy - 0.5 - drag_y * pull + dy / d * sink, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+            frame[y0:y1, x0:x1] = frame[y0:y1, x0:x1] - (9 * dent)[..., None] if depth else frame[y0:y1, x0:x1] * (1 - 0.03 * dent)[..., None]
+        boxes = []
+        for x, y, r, lift, *_ in hands:
+            x0, x1, y0, y1 = int(max(x - 2 * r, 0)), int(min(x + 2.5 * r, w)), int(max(y - 2 * r, 0)), int(min(y + 2.5 * r, h))
+            boxes.append((x0, x1, y0, y1, *np.mgrid[y0:y1, x0:x1].astype(np.float32)[::-1] + 0.5) if x0 < x1 and y0 < y1 else None)
+        if not depth:
+            for (x, y, r, lift, *_), box in zip(hands, boxes):
+                if box is None:
+                    continue
+                x0, x1, y0, y1, xx, yy = box
+                sx, sy = x + (0.1 + 0.3 * lift) * r, y + (0.18 + 0.5 * lift) * r
+                shadow = (0.45 - 0.25 * lift) * np.clip(1 - (np.hypot(xx - sx, yy - sy) - 0.85 * r) / (r * (0.3 + 0.5 * lift)), 0, 1) ** 2
+                frame[y0:y1, x0:x1] *= 1 - shadow[..., None]
+        for (x, y, r, lift, *_), box in zip(hands, boxes):
+            if box is None:
+                continue
+            x0, x1, y0, y1, xx, yy = box
+            d = np.hypot(xx - x, yy - y)
+            alpha = np.clip(r - d + 0.5, 0, 1)[..., None]
+            region = frame[y0:y1, x0:x1]
+            if depth:
+                inside = region[alpha[..., 0] > 0]
+                if not len(inside):
+                    continue
+                color = inside.max()
+            else:
+                shade = 0.8 + 0.2 * np.clip(1 - np.hypot(xx - x + 0.35 * r, yy - y + 0.35 * r) / (1.3 * r), 0, 1)
+                shade *= 1 - 0.18 * np.clip((d - 0.82 * r) / (0.18 * r), 0, 1)
+                color = shade[..., None] * np.array([255, 248, 242], np.float32)
+            frame[y0:y1, x0:x1] = region * (1 - alpha) + color * alpha
+        return Image.fromarray(np.clip(frame, 0, 255).astype(np.uint8))
+
+    def down_steps(self, out, parts):
+        w, h = out.size
+        reveal, margin = self.reveal_trans((w, h)), 0.2 * h
+        smooth = lambda t: t * t * (3 - 2 * t)
+        mj = lambda s: s ** 3 * (10 - 15 * s + 6 * s * s)
+        left, right = self.body_sides(parts, (w, h))
+        head = self.head_points(out, parts)
+        r = float(np.clip(0.33 * head[2] if head else 0.05 * min(w, h), 0.025 * min(w, h), 0.08 * min(w, h)))
+        uppers = [parts[k] for k in ('torso', 'top', 'dress') if k in parts]
+        upper_y = float(np.nonzero(np.logical_or.reduce(uppers).any(axis=1))[0].min()) if uppers else h * 0.3
+        point = lambda k, default: (self.body_point(parts, k) or (0, default))[1]
+        stomach_y = point(0.75, h * 0.55)
+        if 'feet' in parts:
+            feet_y = float(np.nonzero(parts['feet'].any(axis=1))[0].mean())
+        elif 'legs' in parts:
+            feet_y = float(np.nonzero(parts['legs'].any(axis=1))[0].max()) - r
+        else:
+            feet_y = h
+        shoulder_y, chest_y, stomach_y, hips_y, feet_y = np.maximum.accumulate([upper_y + 0.15 * (stomach_y - upper_y), point(0.35, h * 0.4), stomach_y, point(1.15, h * 0.68), min(feet_y, h - 1.3 * r)])
+        if head is None:
+            y = max(upper_y - 0.12 * h, r)
+            head = (np.array([w / 2 - 0.07 * w, y]), np.array([w / 2 + 0.07 * w, y]))
+
+        def side(y, k=0.18, gap=1.2):
+            i = int(np.clip(round(y), 0, h - 1))
+            c, half = (left[i] + right[i]) / 2, max((right[i] - left[i]) * (0.5 - k), gap * r)
+            return np.array([c - half, y]), np.array([c + half, y])
+
+        def travel(a, b):
+            def hands(t):
+                spots = []
+                for j, sign in enumerate((-1, 1)):
+                    s = float(np.clip(t * 1.08 - 0.08 * j, 0, 1))
+                    d = b[j] - a[j]
+                    n = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-6)
+                    n = n if n[0] * sign >= 0 else -n
+                    e, lift = mj(s), np.sin(np.pi * s)
+                    p = a[j] + d * e + n * 0.12 * np.hypot(*d) * np.sin(np.pi * e)
+                    spots.append((p[0], p[1], r * (1 + 0.1 * lift), lift))
+                return spots
+            return hands
+
+        def pat(a, pats=3):
+            def hands(t):
+                env, spots = np.sin(np.pi * t), []
+                for j, sign in enumerate((-1, 1)):
+                    beat = pats * t + 0.5 * j
+                    lift = env * np.sin(np.pi * beat) ** 2
+                    ang = 3 * np.pi * t * sign
+                    swirl = 0.3 * r * env * np.array([np.cos(ang), np.sin(ang)])
+                    p = a[j] + swirl - [0, 0.8 * r * lift]
+                    age = (beat % 1) * 1.5 / pats
+                    press = env * ((1 - lift) ** 2 + 0.2 * np.exp(-6 * age) * np.sin(22 * age))
+                    spots.append((p[0], p[1], r * (0.96 + 0.14 * lift), lift, (press, *(0.2 * (1 - lift) * swirl))))
+                return spots
+            return hands
+
+        def rub(a, turns=2):
+            def hands(t):
+                env, spots = mj(min(1, 4 * t, 4 * (1 - t))), []
+                for j, sign in enumerate((-1, 1)):
+                    ang = 2 * np.pi * turns * t * sign
+                    swirl = 0.5 * r * env * np.array([np.cos(ang) * sign, np.sin(ang)])
+                    p, pulse = a[j] + swirl, 0.5 + 0.5 * np.sin(2 * ang)
+                    spots.append((p[0], p[1], r * (0.97 + 0.04 * env * pulse), 0, (env * (0.75 + 0.15 * pulse), *(0.22 * swirl))))
+                return spots
+            return hands
+
+        def sweep(f0, f1, lo, hi, k_lo=0.18, k_hi=0.18):
+            front = lambda t: f0 + (f1 - f0) * smooth(t)
+            def hands(t):
+                y = float(np.clip(front(t), lo, hi))
+                return [(*p, r, 0) for p in side(y, k_lo + (k_hi - k_lo) * (y - lo) / max(hi - lo, 1))]
+            return lambda t, o, b: reveal(o, b, front(t), np.sin(np.pi * t)), hands
+
+        orig, done, hold = (lambda t, o, b: o), (lambda t, o, b: b), (lambda y: lambda t, o, b: reveal(o, b, y))
+        start = (np.array([-1.5 * r, h + 1.5 * r]), np.array([w + 1.5 * r, h + 1.5 * r]))
+        mid, half = (head[0] + head[1]) / 2, max((head[1][0] - head[0][0]) / 2, 1.25 * r)
+        head = (mid - [half, 0], mid + [half, 0])
+        shoulders, chest, stomach, feet = side(shoulder_y), side(chest_y, 0.27, 1.65), side(stomach_y, 0.27), side(feet_y)
+        hips_x = sum(side(hips_y)) / 2
+        hips = (hips_x - [1.65 * r, 0], hips_x + [1.65 * r, 0])
+        def cam(at, zoom_in, amount=0.3):
+            c = (at[0] + at[1]) / 2
+            def box(t):
+                z = 1 + amount * (mj(t) if zoom_in else 1 - mj(t))
+                bw, bh = w / z, h / z
+                x0, y0 = min(max(c[0] - bw / 2, 0), w - bw), min(max(c[1] - bh / 2, 0), h - bh)
+                return (x0, y0, x0 + bw, y0 + bh)
+            return box
+
+        wipe = lambda f0, f1: sweep(f0, f1, f0, f1)[0]
+        rest = lambda at: lambda t: [(*p, r, 0) for p in at]
+        return [(0.8, orig), (1.4, orig, travel(start, head)), (1.5, orig, pat(head), cam(head, True)), (0.9, wipe(-margin, shoulder_y), travel(head, shoulders), cam(head, False)), (0.5, hold(shoulder_y), rest(shoulders)),
+                (2.0, *sweep(shoulder_y, stomach_y, shoulder_y, stomach_y, 0.18, 0.27)), (0.9, hold(stomach_y), travel(stomach, chest)), (2.0, hold(stomach_y), rub(chest), cam(chest, True)), (0.9, hold(stomach_y), travel(chest, stomach), cam(chest, False)),
+                (2.0, *sweep(stomach_y, feet_y, stomach_y, feet_y, 0.27, 0.18)), (0.9, wipe(feet_y, h + margin), travel(feet, hips)), (2.0, done, rub(hips), cam(hips, True)), (0.9, wipe(h + margin, feet_y), travel(hips, feet), cam(hips, False)),
+                (2.5, *sweep(feet_y, -margin, -margin - 2 * r, feet_y)), (0.5, orig)]
+
     @classmethod
     def face_box(cls, img):
         face = cls.find_face(img)
@@ -373,16 +567,20 @@ class SaveOutputMixin:
         full = (0, 0, w, h)
         top = self.face_box(out) or self.face_box(orig) or (w / 4, 0, w * 3 / 4, h / 2)
         parts = self.parse_body(out)
-        bw, bh, hip = top[2] - top[0], top[3] - top[1], self.body_point(parts, 1.15)
-        x0, y0 = top[0], h - bh
-        if hip:
-            x0 = min(max(hip[0] - bw / 2, 0), w - bw)
-            y0 = min(max(hip[1] - bh / 2, top[1]), h - bh)
-        bottom = (x0, y0, x0 + bw, y0 + bh)
-        dur, trans_in, trans_out = trans(parts)
-        steps = [(1, lambda t, o, b: o), (dur, lambda t, o, b: trans_in(o, b, t)), (0.5, lambda t, o, b: b),
-                 (0.5, lambda t, o, b: zoom(b, full, top, t, lambda t: 1 - (1 - t) ** 3)), (3, lambda t, o, b: zoom(b, top, bottom, t)), (0.5, lambda t, o, b: zoom(b, bottom, full, t)),
-                 (dur, lambda t, o, b: trans_out(b, o, t)), (0.5, lambda t, o, b: o)]
+        if name == 'Down Vid':
+            steps = self.down_steps(out, parts)
+        else:
+            bw, bh, hip = top[2] - top[0], top[3] - top[1], self.body_point(parts, 1.15)
+            x0, y0 = top[0], h - bh
+            if hip:
+                x0 = min(max(hip[0] - bw / 2, 0), w - bw)
+                y0 = min(max(hip[1] - bh / 2, top[1]), h - bh)
+            bottom = (x0, y0, x0 + bw, y0 + bh)
+            dur, trans_in, trans_out = trans(parts)
+            steps = [(1, lambda t, o, b: o), (dur, lambda t, o, b: trans_in(o, b, t)), (0.5, lambda t, o, b: b), (0.5, lambda t, o, b: zoom(b, full, top, t, lambda t: 1 - (1 - t) ** 3)), (3, lambda t, o, b: zoom(b, top, bottom, t)), (0.5, lambda t, o, b: zoom(b, bottom, full, t)), (dur, lambda t, o, b: trans_out(b, o, t)), (0.5, lambda t, o, b: o)]
+        self.render_vid(path, name, orig, out, steps, fps)
+
+    def render_vid(self, path, name, orig, out, steps, fps=30):
         temp = Path(tempfile.mkdtemp())
         try:
             try:
@@ -391,21 +589,30 @@ class SaveOutputMixin:
                 print(f'[ALIVE] Depth estimation failed: {e}')
                 depths = None
             total, sources = 0, [(temp / 'still.mp4', (orig, out))] + ([(temp / 'depth.mp4', depths)] if depths else [])
-            writers = [imageio.get_writer(file, fps=fps, codec='libx264', quality=10, macro_block_size=1) for file, _ in sources]
+            writers = [imageio.get_writer(file, fps=fps, codec='libx264', quality=10 if k else 9, macro_block_size=1) for k, (file, _) in enumerate(sources)]
             try:
-                for dur, frame in steps:
+                for dur, frame, *extra in steps:
+                    hands, cam = (extra + [None, None])[:2]
                     n = round(dur * fps)
                     total += n
                     for i in range(n):
-                        for writer, (_, images) in zip(writers, sources):
-                            writer.append_data(np.asarray(frame((i + 1) / n, *images)))
+                        t = (i + 1) / n
+                        spots, box = hands and hands(t), cam and cam(t)
+                        for k, (writer, (_, images)) in enumerate(zip(writers, sources)):
+                            img = frame(t, *images)
+                            if spots:
+                                img = self.draw_hands(img, spots, depth=k > 0)
+                            if box:
+                                img = img.resize(img.size, Image.Resampling.BICUBIC, box=box)
+                            writer.append_data(np.asarray(img))
             finally:
                 for writer in writers:
                     writer.close()
             try:
                 if not depths:
-                    raise RuntimeError('no depth maps')
-                self.alive_video(temp / 'still.mp4', temp / 'depth.mp4', path, total / fps, fps)
+                    shutil.move(temp / 'still.mp4', path)
+                else:
+                    self.alive_video(temp / 'still.mp4', temp / 'depth.mp4', path, total / fps, fps)
             except Exception as e:
                 print(f'[ALIVE] Alive motion unavailable, saving without it: {e}')
                 shutil.move(temp / 'still.mp4', path)
